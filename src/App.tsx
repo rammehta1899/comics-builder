@@ -17,6 +17,8 @@ import {
   loadSampleProject,
   loadProjectFromFile,
   downloadProject,
+  saveProjectLocal,
+  loadProjectLocal,
 } from "./state/project";
 import type { ComicProject } from "./types/comic";
 import "./App.css";
@@ -29,13 +31,22 @@ export default function App() {
   const [folderName, setFolderName] = useState("My Comic");
   const [status, setStatus] = useState<string>("");
   const [busy, setBusy] = useState(false);
+  const [lastSaved, setLastSaved] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // First open: load the placeholder project, then check Drive access.
+  // First open: restore browser-saved work if present, else the placeholder
+  // project. Then check Drive access.
   useEffect(() => {
-    loadSampleProject()
-      .then(setProject)
-      .catch((e) => setStatus(`Could not load sample project: ${e.message}`));
+    const local = loadProjectLocal();
+    if (local) {
+      setProject(local);
+      setLastSaved(local.updatedAt ?? null);
+      setStatus("Restored your last saved work from this browser.");
+    } else {
+      loadSampleProject()
+        .then(setProject)
+        .catch((e) => setStatus(`Could not load sample project: ${e.message}`));
+    }
     if (!hasDriveAccess()) {
       setShowDrivePrompt(true); // first-open Drive prompt
     }
@@ -122,11 +133,30 @@ export default function App() {
     setStatus("Disconnected from Google Drive.");
   }
 
+  function handleSaveLocal() {
+    if (!project) return;
+    try {
+      const at = saveProjectLocal(project);
+      setLastSaved(at);
+      setStatus(`Saved locally at ${new Date(at).toLocaleTimeString()}.`);
+    } catch (e) {
+      setStatus(`Local save failed: ${e instanceof Error ? e.message : e}`);
+    }
+  }
+
   return (
     <div className="app">
       <header className="app-header">
         <h1>{project?.title ?? "Comic Builder"}</h1>
         <div className="app-actions">
+          <button onClick={handleSaveLocal} disabled={busy || !project}>
+            Save
+          </button>
+          {lastSaved && (
+            <span className="save-state" title={lastSaved}>
+              Saved {new Date(lastSaved).toLocaleTimeString()}
+            </span>
+          )}
           <input
             className="folder-input"
             value={folderName}

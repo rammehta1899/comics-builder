@@ -61,6 +61,16 @@ The app requests only the `drive.file` scope: it can see, create, and edit
 **only** the Drive files it created or that you opened with it — not the rest
 of your Drive.
 
+## Saving
+
+- **Save** (header button) persists the project in the browser's localStorage
+  with a visible "Saved HH:MM:SS" state. Reopening the app restores it.
+- **Export JSON** downloads the project as a `.json` file.
+- **Save to Drive** writes `project.json` into the chosen Drive folder
+  (requires Drive connection). Loading from Drive or a file never silently
+  discards browser-saved work: the previous local copy is kept as a backup
+  under the `cb_local_project_backup` key.
+
 ## How Drive is used
 
 - **First open:** the app checks for a valid Drive access token. If there is

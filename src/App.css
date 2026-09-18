@@ -304,3 +304,10 @@ button:disabled {
     display: none;
   }
 }
+
+.save-state {
+  font-size: 12px;
+  color: #9aa3b2;
+  align-self: center;
+  white-space: nowrap;
+}

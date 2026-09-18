@@ -34,6 +34,40 @@ export function downloadProject(project: ComicProject): void {
   URL.revokeObjectURL(url);
 }
 
+const LOCAL_STORAGE_KEY = "cb_local_project";
+const LOCAL_BACKUP_KEY = "cb_local_project_backup";
+
+/** Explicitly persist the project in this browser (localStorage). */
+export function saveProjectLocal(project: ComicProject): string {
+  const stamped = { ...project, updatedAt: new Date().toISOString() };
+  try {
+    const prev = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (prev) localStorage.setItem(LOCAL_BACKUP_KEY, prev);
+  } catch {
+    /* best effort */
+  }
+  localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(stamped));
+  return stamped.updatedAt as string;
+}
+
+/** Restore the project previously saved in this browser, if any. */
+export function loadProjectLocal(): ComicProject | null {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as ComicProject;
+    validateProject(parsed);
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/** Discard the browser-saved copy (e.g. after a successful Drive save). */
+export function clearProjectLocal(): void {
+  localStorage.removeItem(LOCAL_STORAGE_KEY);
+}
+
 function validateProject(p: ComicProject): void {
   if (!p || !Array.isArray(p.pages)) {
     throw new Error("Invalid comic project file: expected { pages: [...] }.");
