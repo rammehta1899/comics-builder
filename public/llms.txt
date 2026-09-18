@@ -1,0 +1,88 @@
+# Comic Builder
+
+> A generic, static comic-builder web app. It renders a comic project — pages,
+> panels, image layers, and speech bubbles — from a JSON project file. It is not
+> tied to any one comic: point it at any project file and it renders that.
+>
+> Images and the project file live on the user's own Google Drive; the app is a
+> static site and talks to Drive client-side via Google OAuth (drive.file scope:
+> only files the app created or the user opened with it).
+
+## Driving the app as an agent
+
+The app exposes a command API on `window.comicBuilder` once it has loaded. This
+is the primary way for an AI agent — or any script running in the page — to
+operate the app instead of clicking through the UI. Start with
+`comicBuilder.help()`.
+
+Commands (synchronous unless noted):
+
+- `comicBuilder.version` — API version string
+- `comicBuilder.help()` — one-line description of every command
+- `comicBuilder.getProject()` — current ComicProject as an object (null while loading)
+- `comicBuilder.exportProject()` — current project as a JSON string (null while loading)
+- `comicBuilder.loadProject(json)` — replace the whole project with validated JSON
+  (object or JSON string); returns `{ ok, error? }`
+- `comicBuilder.getPageCount()` / `comicBuilder.getPageIndex()` / `comicBuilder.selectPage(i)`
+  — page navigation; `selectPage` takes a 0-based index and returns false when out of range
+- `comicBuilder.getCurrentPage()` — the shown page as an object (null while loading)
+- `comicBuilder.saveLocal()` — persist to the browser's localStorage; returns an ISO
+  timestamp, or null when there is nothing to save
+- `comicBuilder.saveToDrive()` — async; writes `project.json` to the Drive folder;
+  returns `{ ok, error? }`
+- `comicBuilder.openFromDrive()` — async; loads `project.json` from the Drive folder;
+  returns `{ ok, error? }`
+- `comicBuilder.getStatus()` — last human-readable status line shown in the UI
+- `comicBuilder.driveStatus()` — `{ connected, configured }`
+
+Example session (paste into the browser console, or run via automation):
+
+```js
+const p = comicBuilder.getProject();          // read
+p.pages[1].title = "The Hallway";             // edit the data, not the DOM
+const r = comicBuilder.loadProject(p);        // validate + render; r.ok === true
+if (r.ok) comicBuilder.saveLocal();           // persist in this browser
+```
+
+## Data model
+
+- `ComicProject`: `{ id, title, pages[], updatedAt }`
+- `ComicPage`: `{ id, number, title, panels[] }` — `number` is 0-based; the UI shows
+  it as `00`, `01`, `02`, …
+- `Panel`: `{ id, title?, layers[], bubbles[] }`
+- `Layer`: `{ id, name, kind: "background" | "foreground", src, driveFileId?,
+  visible, x, y, width, rotation, opacity }` — `x`/`y`/`width` are percentages of
+  the panel; aspect ratio is always preserved, never stretched
+- `Bubble`: `{ id, kind: "speech" | "thought" | "caption", text, x, y, width,
+  tailX?, tailY? }`
+
+Machine-readable schema: `schema/comic-project.schema.json` (JSON Schema, draft 2020-12).
+Minimal example project: `data/sample-project.json`.
+
+## Capabilities and limits — read before acting
+
+- Rendering is currently read-only in the UI: layers and bubbles are displayed, not
+  drag-edited. To change artwork, layout, or text, build a new project JSON and load
+  it with `loadProject()` — geometry (`x`/`y`/`width`/`rotation`/`opacity`,
+  visibility, stacking order) is preserved exactly as given.
+- `loadProject()` replaces the whole project. There is no partial or page-level
+  patch API yet: read the project, modify the object client-side, and load the full
+  result. When the user talks about one specific page, change only that page's data
+  and keep everything else byte-identical.
+- Google Drive: the first "Connect Drive" click must come from a real user gesture —
+  browsers block programmatic OAuth popups, so an agent cannot complete the connect
+  step alone. Ask the user to click "Connect Google Drive". Once connected,
+  `saveToDrive()` / `openFromDrive()` work without further clicks.
+- Drive access tokens last ~1 hour and are kept in `localStorage`; when one expires
+  the user is asked to reconnect.
+- Local saves go to `localStorage` under `cb_local_project`; the previous copy is
+  always kept as `cb_local_project_backup`. Never silently discard the backup.
+- Never invent layer image URLs. Use `src` values already in the project, `data:` URLs
+  you generated, or `driveFileId`s of files that exist in the project folder.
+
+## Key URLs (relative to the site root)
+
+- `/` — the app
+- `/llms.txt` — this file
+- `/schema/comic-project.schema.json` — JSON Schema of the project model
+- `/data/sample-project.json` — minimal example project

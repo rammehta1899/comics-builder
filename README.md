@@ -111,3 +111,24 @@ are percentages of the panel. A bubble is `{ id, kind: "speech" | "thought" |
 
 See `public/data/sample-project.json` for a minimal example and
 `src/types/comic.ts` for the full types.
+
+## AI / agent access
+
+The app is built to be driven by AI agents as well as by clicks:
+
+- **`llms.txt`** (served at `/llms.txt` relative to the site root, i.e.
+  `/comics-builder/llms.txt` on GitHub Pages): describes the app, the
+  `window.comicBuilder` command API, the data model, and the capabilities
+  and limits an agent must respect.
+- **`window.comicBuilder`**: a command API installed by the app
+  (`src/ai/agentApi.ts`). Agents can read the project
+  (`getProject()`/`exportProject()`), replace it with validated JSON
+  (`loadProject()`), navigate pages (`selectPage()`), save locally
+  (`saveLocal()`), and use Drive (`saveToDrive()`/`openFromDrive()`).
+  Start with `comicBuilder.help()`.
+- **`schema/comic-project.schema.json`**: JSON Schema (draft 2020-12) for
+  `ComicProject`, so agents can construct and validate project JSON.
+
+Notes: `loadProject()` replaces the whole project (no partial patch API
+yet). The first Drive "Connect" click must come from a real user gesture —
+browsers block programmatic OAuth popups.

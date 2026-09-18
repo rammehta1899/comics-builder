@@ -17,7 +17,7 @@ export async function loadSampleProject(): Promise<ComicProject> {
 export async function loadProjectFromFile(file: File): Promise<ComicProject> {
   const text = await file.text();
   const parsed = JSON.parse(text) as ComicProject;
-  validateProject(parsed);
+  assertValidProject(parsed);
   return parsed;
 }
 
@@ -56,7 +56,7 @@ export function loadProjectLocal(): ComicProject | null {
     const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as ComicProject;
-    validateProject(parsed);
+    assertValidProject(parsed);
     return parsed;
   } catch {
     return null;
@@ -68,8 +68,15 @@ export function clearProjectLocal(): void {
   localStorage.removeItem(LOCAL_STORAGE_KEY);
 }
 
-function validateProject(p: ComicProject): void {
-  if (!p || !Array.isArray(p.pages)) {
-    throw new Error("Invalid comic project file: expected { pages: [...] }.");
+/**
+ * Throw if the value is not a usable ComicProject.
+ * Used by file/Drive loading and by the agent API.
+ */
+export function assertValidProject(p: unknown): asserts p is ComicProject {
+  const proj = p as ComicProject;
+  if (!proj || !Array.isArray(proj.pages)) {
+    throw new Error(
+      "Invalid comic project: expected { id, title, pages: [...] }."
+    );
   }
 }
