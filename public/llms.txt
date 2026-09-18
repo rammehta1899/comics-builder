@@ -73,8 +73,10 @@ Minimal example project: `data/sample-project.json`.
   browsers block programmatic OAuth popups, so an agent cannot complete the connect
   step alone. Ask the user to click "Connect Google Drive". Once connected,
   `saveToDrive()` / `openFromDrive()` work without further clicks.
-- Drive access tokens last ~1 hour and are kept in `localStorage`; when one expires
-  the user is asked to reconnect.
+- Drive access tokens last ~1 hour and are held only in memory — never in
+  web storage. Reloading the page drops the token, so the user clicks
+  "Connect Google Drive" once per browser session; when a token expires the
+  user is asked to reconnect.
 - Local saves go to `localStorage` under `cb_local_project`; the previous copy is
   always kept as `cb_local_project_backup`. Never silently discard the backup.
 - Never invent layer image URLs. Use `src` values already in the project, `data:` URLs

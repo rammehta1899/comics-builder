@@ -11,13 +11,23 @@
  *  you use with this app"). The app can only touch files it created
  *  or that the user explicitly opened with it — nothing else in Drive.
  *
- * Tokens are kept in localStorage with an expiry timestamp. Access
- * tokens last ~1 hour; when expired the user is prompted to reconnect.
+ * Token lifetime: the Drive access token is held only in this module's
+ * memory. It is never written to localStorage, sessionStorage, cookies,
+ * or the URL. This matches Google's own guidance for browser-based OAuth
+ * 2.0 apps — their web code-model guide keeps the access token "in
+ * browser memory" (e.g. via gapi.client.setToken) — and the OAuth 2.0
+ * security BCP (RFC 9700), which warns against storing tokens in web
+ * storage where an XSS flaw could exfiltrate them.
+ *
+ * Trade-off: reloading the page drops the token, so Drive is reconnected
+ * with one click per browser session (the GIS popup usually re-authorizes
+ * silently, and the app prompts for it when the token is missing/expired).
+ * The remembered project *folder id* is not a secret, so it stays in
+ * localStorage and a reconnect re-opens the same folder.
  */
 
 const GIS_SCRIPT_URL = "https://accounts.google.com/gsi/client";
 const DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file";
-const TOKEN_STORAGE_KEY = "cb_drive_token";
 const FOLDER_STORAGE_KEY = "cb_drive_folder";
 
 interface StoredToken {
@@ -62,16 +72,12 @@ function loadGisScript(): Promise<void> {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let tokenClient: any = null;
 
+// The access token lives only in module memory (see the header comment);
+// there is deliberately no persistent token storage.
+let tokenInMemory: StoredToken | null = null;
+
 function readStoredToken(): StoredToken | null {
-  try {
-    const raw = localStorage.getItem(TOKEN_STORAGE_KEY);
-    if (!raw) return null;
-    const t = JSON.parse(raw) as StoredToken;
-    if (!t.access_token || !t.expires_at) return null;
-    return t;
-  } catch {
-    return null;
-  }
+  return tokenInMemory;
 }
 
 /** True when we have an unexpired Drive access token. */
@@ -87,15 +93,14 @@ export function getAccessToken(): string | null {
 }
 
 function storeToken(accessToken: string, expiresInSec: number): void {
-  const t: StoredToken = {
+  tokenInMemory = {
     access_token: accessToken,
     expires_at: Date.now() + expiresInSec * 1000,
   };
-  localStorage.setItem(TOKEN_STORAGE_KEY, JSON.stringify(t));
 }
 
 export function clearDriveAccess(): void {
-  localStorage.removeItem(TOKEN_STORAGE_KEY);
+  tokenInMemory = null;
 }
 
 /**

@@ -83,9 +83,10 @@ of your Drive.
 - **Save to Drive:** writes the current project JSON back to `project.json`
   in that folder. Use `uploadImage()` in `src/drive/driveClient.ts` to add
   images to the folder.
-- Tokens are stored in `localStorage` with an expiry (~1 hour). When a token
-  expires you will be asked to reconnect. "Disconnect Drive" revokes the
-  token at Google and clears it locally.
+- Tokens are held only in memory with an expiry (~1 hour); reloading the
+  page drops the token, so you click "Connect Google Drive" once per browser
+  session. "Disconnect Drive" revokes the token at Google and clears it
+  locally. Tokens are never written to web storage.
 
 ## Deploy action
 
