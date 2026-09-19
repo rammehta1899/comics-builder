@@ -191,7 +191,7 @@ export default function App() {
           await requestDriveAccess();
           await refreshTiles();
           setScreen('tiles');
-          setStatus('Connected to Google Drive.');
+          setStatus('');
         } catch (e) {
           setStatus(`Could not connect: ${e instanceof Error ? e.message : e}`);
         }
@@ -207,7 +207,7 @@ export default function App() {
             await refreshTiles();
             setDeviceCode(null);
             setScreen('tiles');
-            setStatus('Connected to Google Drive.');
+            setStatus('');
           } catch (e) {
             setDeviceCode(null);
             setStatus(`Could not connect: ${e instanceof Error ? e.message : e}`);
