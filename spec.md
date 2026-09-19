@@ -43,18 +43,29 @@ Google Drive API ◄── OAuth token (page memory) ── saveProjectJson()
    for headless browsers, showing a verification URL + user code for the
    user to approve on any other device.
 2. **Tiles** (`tiles`) — one Bootstrap card per Drive project folder plus a
-   dashed "New project" tile. The new-project name is collected in a
-   Bootstrap modal. Each tile opens through
-   `ComicBuilder.storage.openProject(id)`.
+   dashed "New project" tile. The new-project name and page size (preset:
+   US Comic, US Trade, Manga B5, A4, Square, Portrait 4:5, Landscape 16:9)
+   are collected in a Bootstrap modal and stored in
+   `metadata.pageSize`. Each tile opens through
+   `ComicBuilder.storage.openProject(id)`. Connection is implicit — no
+   connected-status indicator and no disconnect button anywhere in the UI
+   (disconnect stays available as `ComicBuilder.storage.disconnect()`).
 3. **Editor** (`editor`) — Bootstrap dark navbar with the project title
    from `project.json`, a Saving/Saved indicator derived from `savedAt`,
-   and a dropdown menu: Open project (back to tiles), Preview, Close
-   project, Disconnect Drive. A left rail lists pages (`00`, `01`, …) via
+   and a dropdown menu: Open project (back to tiles), Preview this page,
+   Close project. All dropdowns are `position: fixed` so they can never
+   create page scrollbars. Below the navbar the editor has four tabs —
+   **Outline** (metadata: title, page-size preset, story outline),
+   **Characters**, **Scenes**, **Pages**. On desktop the tabs are a tab bar;
+   on mobile they are picked from a menu. The Pages tab has a thin
+   page-number rail on the left for desktop and a horizontal scrolling
+   page-number footer on mobile; page buttons call
    `ComicBuilder.page.select(i)`; the main area renders the current page's
    panels.
 4. **Preview overlay** (`preview` boolean) — the current page's panels with
    minimal chrome (page number/title + "Close preview"), rendered on a dark
-   background so an agent can screenshot a finished page. Entered via
+   background so an agent can screenshot a finished page. Preview is always
+   per-page, never the whole project. Entered via
    `ComicBuilder.page.openPreview()`, exited via `closePreview()`.
 
 ## 3. Data model
@@ -77,8 +88,11 @@ driveFileId?, mediaId?, visible, x, y, width, rotation, opacity }`.
   stretched.
 - `Bubble` — `{ id, kind: "speech" | "thought" | "caption", text, x, y,
 width, tailX?, tailY? }`. Bubbles always render above all layers.
-- `ProjectMetadata` — `{ outline, characters[], scenes[], objects[],
-media[] }`: the story bible plus the media registry.
+- `ProjectMetadata` — `{ outline, pageSize, characters[], scenes[],
+objects[], media[] }`: the story bible plus the media registry.
+`pageSize` is `{ label, widthIn, heightIn }`, chosen at creation from
+`PAGE_SIZE_PRESETS` (old projects without it load with the US Comic
+default).
 - `Character` / `ComicObject` — `{ id, name, description, imageIds[],
 sceneIds[] }`. The description carries visual continuity guidance.
 - `Scene` — `{ id, name, description, characterIds[], imageIds[] }`.
@@ -108,7 +122,7 @@ Namespaces:
 - `layers` — `list(panelId)`, `get(panelId, layerId)`, `add(panelId, layer)`,
   `update(panelId, layerId, patch)`, `delete(panelId, layerId)`
 - `bubbles` — `list/add/update/delete`, addressed by panel id
-- `metadata` — `get()`, `setOutline(text)`
+- `metadata` — `get()`, `setOutline(text)`, `setPageSize(pageSize)`
 - `characters` / `scenes` / `objects` — `list/get/create/update/delete`
 - `media` — `list()`, `get(id)`, `upload(name, dataUrl, mimeType)` (data URL
   → File → Drive upload → registry entry)

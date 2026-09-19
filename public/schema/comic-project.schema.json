@@ -150,9 +150,23 @@
         "media": { "items": { "$ref": "#/$defs/MediaItem" }, "type": "array" },
         "objects": { "items": { "$ref": "#/$defs/ComicObject" }, "type": "array" },
         "outline": { "description": "Story outline / synopsis.", "type": "string" },
+        "pageSize": { "$ref": "#/$defs/PageSize" },
         "scenes": { "items": { "$ref": "#/$defs/Scene" }, "type": "array" }
       },
       "required": ["outline", "characters", "scenes", "objects", "media"],
+      "type": "object"
+    },
+    "PageSize": {
+      "description": "Physical page dimensions for the comic.",
+      "properties": {
+        "heightIn": { "description": "Height in inches.", "type": "number" },
+        "label": {
+          "description": "Preset label, e.g. 'US Comic (6.625\" × 10.25\")'.",
+          "type": "string"
+        },
+        "widthIn": { "description": "Width in inches.", "type": "number" }
+      },
+      "required": ["label", "widthIn", "heightIn"],
       "type": "object"
     },
     "Scene": {

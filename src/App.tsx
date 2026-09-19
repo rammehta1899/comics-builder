@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import PanelView from './components/PanelView';
 import { installComicBuilder, uninstallComicBuilder } from './ai/actions';
 import type { ComicBuilderDeps } from './ai/actions';
@@ -20,11 +21,19 @@ import {
   uploadImage,
 } from './drive/driveClient';
 import type { DeviceCodeInfo } from './drive/driveClient';
-import { assertValidProject, createBlankProject } from './state/project';
+import { assertValidProject, createBlankProject, normalizeProject } from './state/project';
 import type { ComicProject, MediaItem } from './types/comic';
-import { formatPageNumber } from './types/comic';
+import { DEFAULT_PAGE_SIZE, formatPageNumber, PAGE_SIZE_PRESETS } from './types/comic';
 
 type Screen = 'splash' | 'tiles' | 'editor';
+type EditorTab = 'outline' | 'characters' | 'scenes' | 'pages';
+
+const EDITOR_TABS: Array<{ id: EditorTab; label: string }> = [
+  { id: 'outline', label: 'Outline' },
+  { id: 'characters', label: 'Characters' },
+  { id: 'scenes', label: 'Scenes' },
+  { id: 'pages', label: 'Pages' },
+];
 
 /** The installed window.ComicBuilder API. Every UI control calls through here. */
 function cb() {
@@ -51,11 +60,14 @@ export default function App() {
   const [folders, setFolders] = useState<Array<{ id: string; name: string }>>([]);
   const [status, setStatus] = useState('');
   const [deviceCode, setDeviceCode] = useState<DeviceCodeInfo | null>(null);
+  const [tab, setTab] = useState<EditorTab>('pages');
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [tabMenuOpen, setTabMenuOpen] = useState(false);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [showNewModal, setShowNewModal] = useState(false);
   const [newName, setNewName] = useState('');
   const [whyOpen, setWhyOpen] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [pageSizeIdx, setPageSizeIdx] = useState(0);
 
   // Refs mirror state so the ComicBuilder deps always see the latest values.
   const projectRef = useRef<ComicProject | null>(null);
@@ -108,6 +120,7 @@ export default function App() {
     try {
       const raw = await loadProjectJson(id);
       assertValidProject(raw);
+      normalizeProject(raw);
       await hydrateDriveImages(raw);
       folderIdRef.current = id;
       storeFolderId(id);
@@ -116,6 +129,7 @@ export default function App() {
       pageIndexRef.current = 0;
       setPageIndex(0);
       setPreview(false);
+      setTab('pages');
       setScreen('editor');
       setStatus(`Opened "${raw.title}".`);
       return { ok: true };
@@ -217,6 +231,7 @@ export default function App() {
         setProject(null);
         setFolders([]);
         setPreview(false);
+        setTab('pages');
         setSaveState('idle');
         setScreen('splash');
         setStatus('Disconnected from Google Drive.');
@@ -229,7 +244,7 @@ export default function App() {
 
       listStorageProjects: () => listProjectFolders(),
 
-      createStorageProject: async (name) => {
+      createStorageProject: async (name, pageSize) => {
         const clean = name.trim();
         if (!clean) throw new Error('Project name is required.');
         const folder = await ensureProjectFolder(clean);
@@ -238,9 +253,10 @@ export default function App() {
           const existing = await loadProjectJson(folder.id);
           assertValidProject(existing);
           raw = existing;
+          normalizeProject(raw);
           await hydrateDriveImages(raw);
         } catch {
-          raw = createBlankProject(clean);
+          raw = createBlankProject(clean, pageSize ?? DEFAULT_PAGE_SIZE);
           await saveProjectJson(folder.id, raw);
         }
         folderIdRef.current = folder.id;
@@ -250,6 +266,7 @@ export default function App() {
         pageIndexRef.current = 0;
         setPageIndex(0);
         setPreview(false);
+        setTab('pages');
         setScreen('editor');
         setStatus(`Created "${clean}".`);
         return { id: folder.id, name: folder.name };
@@ -267,6 +284,7 @@ export default function App() {
         pageIndexRef.current = 0;
         setPageIndex(0);
         setPreview(false);
+        setTab('pages');
         setSaveState('idle');
         void refreshTiles().then(() => setScreen('tiles'));
         setStatus('Project closed.');
@@ -411,17 +429,22 @@ export default function App() {
   }
 
   if (screen === 'tiles') {
+    const createNewProject = () => {
+      if (!newName.trim()) return;
+      void cb()
+        .storage.createProject(newName.trim(), PAGE_SIZE_PRESETS[pageSizeIdx] ?? DEFAULT_PAGE_SIZE)
+        .then(() => {
+          setShowNewModal(false);
+          setNewName('');
+          setPageSizeIdx(0);
+        })
+        .catch((err: unknown) => setStatus(err instanceof Error ? err.message : String(err)));
+    };
     return (
       <div className="min-vh-100 bg-light">
         <div className="container py-4">
           <div className="d-flex justify-content-between align-items-center mb-4">
             <h1 className="h4 mb-0">Your comics</h1>
-            <button
-              className="btn btn-outline-secondary btn-sm"
-              onClick={() => void cb().storage.disconnect()}
-            >
-              Disconnect Drive
-            </button>
           </div>
           {status && <div className="alert alert-info">{status}</div>}
           <div className="row g-3">
@@ -478,18 +501,25 @@ export default function App() {
                       onChange={(e) => setNewName(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && newName.trim()) {
-                          void cb()
-                            .storage.createProject(newName.trim())
-                            .then(() => {
-                              setShowNewModal(false);
-                              setNewName('');
-                            })
-                            .catch((err: unknown) =>
-                              setStatus(err instanceof Error ? err.message : String(err))
-                            );
+                          createNewProject();
                         }
                       }}
                     />
+                    <label className="form-label mt-3" htmlFor="new-project-size">
+                      Page size
+                    </label>
+                    <select
+                      id="new-project-size"
+                      className="form-select"
+                      value={pageSizeIdx}
+                      onChange={(e) => setPageSizeIdx(Number(e.target.value))}
+                    >
+                      {PAGE_SIZE_PRESETS.map((p, i) => (
+                        <option key={p.label} value={i}>
+                          {p.label}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div className="modal-footer">
                     <button className="btn btn-secondary" onClick={() => setShowNewModal(false)}>
@@ -498,17 +528,7 @@ export default function App() {
                     <button
                       className="btn btn-primary"
                       disabled={!newName.trim()}
-                      onClick={() => {
-                        void cb()
-                          .storage.createProject(newName.trim())
-                          .then(() => {
-                            setShowNewModal(false);
-                            setNewName('');
-                          })
-                          .catch((err: unknown) =>
-                            setStatus(err instanceof Error ? err.message : String(err))
-                          );
-                      }}
+                      onClick={createNewProject}
                     >
                       Create
                     </button>
@@ -559,81 +579,103 @@ export default function App() {
   return (
     <div className="min-vh-100 d-flex flex-column bg-light">
       <nav className="navbar navbar-dark bg-dark px-3">
-        <span className="navbar-brand mb-0 h1 fs-5">{project?.title ?? 'Comic Builder'}</span>
-        <div className="d-flex align-items-center gap-3">
-          {saveLabel && <span className="navbar-text small text-nowrap">{saveLabel}</span>}
-          <div className="position-relative">
-            <button
-              className="btn btn-outline-light btn-sm dropdown-toggle"
-              onClick={() => setMenuOpen((v) => !v)}
-              aria-expanded={menuOpen}
-            >
-              Menu
-            </button>
-            {menuOpen && (
-              <>
-                <div
-                  className="position-fixed top-0 start-0 w-100 h-100"
-                  style={{ zIndex: 1040 }}
-                  onClick={() => setMenuOpen(false)}
-                />
-                <ul
-                  className="dropdown-menu dropdown-menu-end show"
-                  style={{ position: 'absolute', zIndex: 1041 }}
-                >
-                  <li>
-                    <button
-                      className="dropdown-item"
-                      onClick={() => {
-                        setMenuOpen(false);
-                        void cb().storage.showProjects();
-                      }}
-                    >
-                      Open project
-                    </button>
-                  </li>
-                  <li>
-                    <button
-                      className="dropdown-item"
-                      onClick={() => {
-                        setMenuOpen(false);
-                        cb().page.openPreview();
-                      }}
-                    >
-                      Preview
-                    </button>
-                  </li>
-                  <li>
-                    <button
-                      className="dropdown-item"
-                      onClick={() => {
-                        setMenuOpen(false);
-                        cb().storage.closeProject();
-                      }}
-                    >
-                      Close project
-                    </button>
-                  </li>
-                  <li>
-                    <hr className="dropdown-divider" />
-                  </li>
-                  <li>
-                    <button
-                      className="dropdown-item text-danger"
-                      onClick={() => {
-                        setMenuOpen(false);
-                        void cb().storage.disconnect();
-                      }}
-                    >
-                      Disconnect Drive
-                    </button>
-                  </li>
-                </ul>
-              </>
-            )}
-          </div>
+        <span className="navbar-brand mb-0 h1 fs-5 text-truncate" style={{ maxWidth: '42vw' }}>
+          {project?.title ?? 'Comic Builder'}
+        </span>
+        <div className="d-flex align-items-center gap-2">
+          {saveLabel && (
+            <span className="navbar-text small text-nowrap d-none d-sm-inline">{saveLabel}</span>
+          )}
+          <button
+            className="btn btn-outline-light btn-sm d-md-none"
+            onClick={() => {
+              setTabMenuOpen((v) => !v);
+              setMenuOpen(false);
+            }}
+            aria-expanded={tabMenuOpen}
+          >
+            {EDITOR_TABS.find((t) => t.id === tab)?.label ?? 'Tabs'}
+          </button>
+          <button
+            className="btn btn-outline-light btn-sm"
+            onClick={() => {
+              setMenuOpen((v) => !v);
+              setTabMenuOpen(false);
+            }}
+            aria-expanded={menuOpen}
+          >
+            Menu
+          </button>
         </div>
       </nav>
+
+      {tabMenuOpen && (
+        <FixedMenu onClose={() => setTabMenuOpen(false)}>
+          {EDITOR_TABS.map((t) => (
+            <li key={t.id}>
+              <button
+                className={`dropdown-item${t.id === tab ? ' active' : ''}`}
+                onClick={() => {
+                  setTabMenuOpen(false);
+                  setTab(t.id);
+                }}
+              >
+                {t.label}
+              </button>
+            </li>
+          ))}
+        </FixedMenu>
+      )}
+      {menuOpen && (
+        <FixedMenu onClose={() => setMenuOpen(false)}>
+          <li>
+            <button
+              className="dropdown-item"
+              onClick={() => {
+                setMenuOpen(false);
+                void cb().storage.showProjects();
+              }}
+            >
+              Open project
+            </button>
+          </li>
+          <li>
+            <button
+              className="dropdown-item"
+              onClick={() => {
+                setMenuOpen(false);
+                cb().page.openPreview();
+              }}
+            >
+              Preview this page
+            </button>
+          </li>
+          <li>
+            <button
+              className="dropdown-item"
+              onClick={() => {
+                setMenuOpen(false);
+                cb().storage.closeProject();
+              }}
+            >
+              Close project
+            </button>
+          </li>
+        </FixedMenu>
+      )}
+
+      <ul className="nav nav-tabs px-3 pt-2 bg-white border-bottom d-none d-md-flex mb-0">
+        {EDITOR_TABS.map((t) => (
+          <li className="nav-item" key={t.id}>
+            <button
+              className={`nav-link${t.id === tab ? ' active' : ''}`}
+              onClick={() => setTab(t.id)}
+            >
+              {t.label}
+            </button>
+          </li>
+        ))}
+      </ul>
 
       {status && (
         <div className="alert alert-info alert-dismissible m-2 mb-0 py-2">
@@ -642,41 +684,309 @@ export default function App() {
         </div>
       )}
 
-      <div className="d-flex flex-grow-1" style={{ minHeight: 0 }}>
-        <div
-          className="list-group list-group-flush border-end"
-          style={{ width: 220, flexShrink: 0 }}
-        >
-          {(project?.pages ?? []).map((pg, idx) => (
-            <button
-              key={pg.id}
-              className={`list-group-item list-group-item-action text-truncate${
-                idx === pageIndex ? ' active' : ''
-              }`}
-              onClick={() => cb().page.select(idx)}
+      {tab === 'pages' && (
+        <div className="d-flex flex-column flex-grow-1" style={{ minHeight: 0 }}>
+          <div className="d-flex flex-grow-1" style={{ minHeight: 0 }}>
+            <div
+              className="d-none d-md-flex flex-column align-items-stretch border-end bg-white py-2"
+              style={{ width: 64, flexShrink: 0, overflowY: 'auto' }}
             >
-              <span className="fw-bold me-2">{formatPageNumber(pg.number)}</span>
-              {pg.title}
-            </button>
-          ))}
+              {(project?.pages ?? []).map((pg, idx) => (
+                <button
+                  key={pg.id}
+                  title={pg.title}
+                  className={`btn btn-sm mx-2 mb-1 px-0${
+                    idx === pageIndex ? ' btn-dark' : ' btn-outline-secondary'
+                  }`}
+                  onClick={() => cb().page.select(idx)}
+                >
+                  {formatPageNumber(pg.number)}
+                </button>
+              ))}
+            </div>
+            <main className="flex-grow-1 p-3 overflow-auto">
+              {currentPage ? (
+                <>
+                  <h2 className="h5 mb-3">
+                    Page {formatPageNumber(currentPage.number)} — {currentPage.title}
+                  </h2>
+                  <div className="panels">
+                    {currentPage.panels.map((panel) => (
+                      <PanelView key={panel.id} panel={panel} />
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <p className="text-muted">Loading…</p>
+              )}
+            </main>
+          </div>
+          <div className="d-md-none border-top bg-white py-2">
+            <div className="d-flex gap-2 px-3" style={{ overflowX: 'auto' }}>
+              {(project?.pages ?? []).map((pg, idx) => (
+                <button
+                  key={pg.id}
+                  title={pg.title}
+                  className={`btn btn-sm px-3 flex-shrink-0${
+                    idx === pageIndex ? ' btn-dark' : ' btn-outline-secondary'
+                  }`}
+                  onClick={() => cb().page.select(idx)}
+                >
+                  {formatPageNumber(pg.number)}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
-        <main className="flex-grow-1 p-3 overflow-auto">
-          {currentPage ? (
-            <>
-              <h2 className="h5 mb-3">
-                Page {formatPageNumber(currentPage.number)} — {currentPage.title}
-              </h2>
-              <div className="panels">
-                {currentPage.panels.map((panel) => (
-                  <PanelView key={panel.id} panel={panel} />
-                ))}
-              </div>
-            </>
-          ) : (
-            <p className="text-muted">Loading…</p>
+      )}
+      {tab === 'outline' && project && <OutlineTab key={project.id} project={project} />}
+      {tab === 'characters' && project && <CharactersTab key={project.id} project={project} />}
+      {tab === 'scenes' && project && <ScenesTab key={project.id} project={project} />}
+    </div>
+  );
+}
+
+/** Dropdown menu rendered fixed to the viewport so it can never create page scrollbars. */
+function FixedMenu({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+  return (
+    <>
+      <div
+        className="position-fixed top-0 start-0 w-100 h-100"
+        style={{ zIndex: 1040 }}
+        onClick={onClose}
+      />
+      <ul
+        className="dropdown-menu show"
+        style={{ position: 'fixed', top: 56, right: 8, zIndex: 1041, minWidth: 200 }}
+      >
+        {children}
+      </ul>
+    </>
+  );
+}
+
+/** Outline tab: project title, page size, and the story outline. All edits go through window.ComicBuilder. */
+function OutlineTab({ project }: { project: ComicProject }) {
+  const [outline, setOutline] = useState(project.metadata.outline);
+  const [note, setNote] = useState('');
+  const ps = project.metadata.pageSize ?? DEFAULT_PAGE_SIZE;
+  const presetIdx = PAGE_SIZE_PRESETS.findIndex(
+    (p) => p.widthIn === ps.widthIn && p.heightIn === ps.heightIn
+  );
+
+  return (
+    <div className="container py-4 overflow-auto" style={{ maxWidth: 800 }}>
+      <h2 className="h5 mb-1">Outline</h2>
+      <p className="text-muted small mb-4">{project.title}</p>
+
+      <div className="mb-4">
+        <label className="form-label fw-semibold" htmlFor="outline-pagesize">
+          Page size
+        </label>
+        <select
+          id="outline-pagesize"
+          className="form-select"
+          style={{ maxWidth: 340 }}
+          value={presetIdx >= 0 ? presetIdx : 'custom'}
+          onChange={(e) => {
+            const p = PAGE_SIZE_PRESETS[Number(e.target.value)];
+            if (p) {
+              cb().metadata.setPageSize({ ...p });
+              setNote(`Page size set to ${p.label}.`);
+            }
+          }}
+        >
+          {presetIdx < 0 && (
+            <option value="custom">
+              {ps.label} — {ps.widthIn}&quot; × {ps.heightIn}&quot;
+            </option>
           )}
-        </main>
+          {PAGE_SIZE_PRESETS.map((p, i) => (
+            <option key={p.label} value={i}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+        <div className="form-text">
+          {ps.widthIn}&quot; × {ps.heightIn}&quot; — stored in the project metadata.
+        </div>
       </div>
+
+      <div className="mb-2 d-flex justify-content-between align-items-center">
+        <label className="form-label fw-semibold mb-0" htmlFor="outline-text">
+          Story outline
+        </label>
+        {note && <span className="text-success small">{note}</span>}
+      </div>
+      <textarea
+        id="outline-text"
+        className="form-control"
+        rows={12}
+        value={outline}
+        onChange={(e) => setOutline(e.target.value)}
+        placeholder="Story outline / synopsis…"
+      />
+      <button
+        className="btn btn-primary mt-3"
+        onClick={() => {
+          cb().metadata.setOutline(outline);
+          setNote('Outline saved.');
+        }}
+      >
+        Save outline
+      </button>
+    </div>
+  );
+}
+
+/** One editable story-bible entry (character or scene card). */
+function StoryCard({
+  id,
+  name,
+  description,
+  kind,
+  onUpdate,
+  onDelete,
+}: {
+  id: string;
+  name: string;
+  description: string;
+  kind: 'character' | 'scene';
+  onUpdate: (id: string, patch: { name?: string; description?: string }) => void;
+  onDelete: (id: string) => void;
+}) {
+  return (
+    <div className="card mb-3">
+      <div className="card-body">
+        <div className="d-flex gap-2 align-items-center mb-2">
+          <input
+            className="form-control fw-semibold"
+            defaultValue={name}
+            aria-label={`${kind} name`}
+            onBlur={(e) => {
+              const v = e.target.value.trim();
+              if (v && v !== name) onUpdate(id, { name: v });
+              else e.target.value = name;
+            }}
+          />
+          <button
+            className="btn btn-outline-danger btn-sm flex-shrink-0"
+            onClick={() => {
+              if (window.confirm(`Delete ${kind} "${name}"?`)) onDelete(id);
+            }}
+          >
+            Delete
+          </button>
+        </div>
+        <textarea
+          className="form-control"
+          rows={3}
+          defaultValue={description}
+          aria-label={`${kind} description`}
+          placeholder={
+            kind === 'character'
+              ? 'Visual description + continuity notes…'
+              : 'Setting, time of day, mood, lighting…'
+          }
+          onBlur={(e) => {
+            if (e.target.value !== description) onUpdate(id, { description: e.target.value });
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** Characters tab: the story-bible character list, editable. */
+function CharactersTab({ project }: { project: ComicProject }) {
+  const [newName, setNewName] = useState('');
+  const chars = project.metadata.characters;
+  return (
+    <div className="container py-4 overflow-auto" style={{ maxWidth: 800 }}>
+      <h2 className="h5 mb-3">Characters</h2>
+      <div className="input-group mb-4" style={{ maxWidth: 480 }}>
+        <input
+          className="form-control"
+          placeholder="New character name"
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && newName.trim()) {
+              cb().characters.create({ name: newName.trim() });
+              setNewName('');
+            }
+          }}
+        />
+        <button
+          className="btn btn-primary"
+          disabled={!newName.trim()}
+          onClick={() => {
+            cb().characters.create({ name: newName.trim() });
+            setNewName('');
+          }}
+        >
+          Add
+        </button>
+      </div>
+      {chars.map((c) => (
+        <StoryCard
+          key={c.id}
+          id={c.id}
+          name={c.name}
+          description={c.description}
+          kind="character"
+          onUpdate={(id, patch) => cb().characters.update(id, patch)}
+          onDelete={(id) => cb().characters.delete(id)}
+        />
+      ))}
+      {chars.length === 0 && <p className="text-muted">No characters yet.</p>}
+    </div>
+  );
+}
+
+/** Scenes tab: the story-bible scene/location list, editable. */
+function ScenesTab({ project }: { project: ComicProject }) {
+  const [newName, setNewName] = useState('');
+  const scenes = project.metadata.scenes;
+  return (
+    <div className="container py-4 overflow-auto" style={{ maxWidth: 800 }}>
+      <h2 className="h5 mb-3">Scenes</h2>
+      <div className="input-group mb-4" style={{ maxWidth: 480 }}>
+        <input
+          className="form-control"
+          placeholder="New scene name"
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && newName.trim()) {
+              cb().scenes.create({ name: newName.trim() });
+              setNewName('');
+            }
+          }}
+        />
+        <button
+          className="btn btn-primary"
+          disabled={!newName.trim()}
+          onClick={() => {
+            cb().scenes.create({ name: newName.trim() });
+            setNewName('');
+          }}
+        >
+          Add
+        </button>
+      </div>
+      {scenes.map((s) => (
+        <StoryCard
+          key={s.id}
+          id={s.id}
+          name={s.name}
+          description={s.description}
+          kind="scene"
+          onUpdate={(id, patch) => cb().scenes.update(id, patch)}
+          onDelete={(id) => cb().scenes.delete(id)}
+        />
+      ))}
+      {scenes.length === 0 && <p className="text-muted">No scenes yet.</p>}
     </div>
   );
 }

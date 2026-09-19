@@ -1,5 +1,12 @@
-import type { Character, ComicObject, ComicProject, MediaItem, Scene } from '../types/comic';
-import { blankMetadata } from '../types/comic';
+import type {
+  Character,
+  ComicObject,
+  ComicProject,
+  MediaItem,
+  PageSize,
+  Scene,
+} from '../types/comic';
+import { blankMetadata, DEFAULT_PAGE_SIZE } from '../types/comic';
 
 /**
  * Project loading sources. The builder is generic: it renders whatever
@@ -9,16 +16,29 @@ import { blankMetadata } from '../types/comic';
  */
 
 /** A fresh, empty project used when a Drive folder has no project.json yet. */
-export function createBlankProject(title = 'Untitled Comic'): ComicProject {
+export function createBlankProject(
+  title = 'Untitled Comic',
+  pageSize: PageSize = DEFAULT_PAGE_SIZE
+): ComicProject {
   const now = new Date().toISOString();
   return {
     id: `comic-${Date.now().toString(36)}`,
     title,
     updatedAt: now,
     savedAt: now,
-    metadata: blankMetadata(),
+    metadata: blankMetadata(pageSize),
     pages: [{ id: 'page-cover', number: 0, title: 'Cover', panels: [] }],
   };
+}
+
+/**
+ * Fill in defaults for fields added after a project.json was written
+ * (currently just metadata.pageSize). Keeps old projects loadable.
+ */
+export function normalizeProject(p: ComicProject): void {
+  if (!p.metadata.pageSize) {
+    p.metadata.pageSize = { ...DEFAULT_PAGE_SIZE };
+  }
 }
 
 /**
@@ -47,6 +67,7 @@ export function assertValidProject(p: unknown): asserts p is ComicProject {
 function checkMetadata(m: unknown, path: string): void {
   if (!isRecord(m)) fail(path, 'expected an object');
   if (!isString(m.outline)) fail(path, 'expected string "outline"');
+  if (m.pageSize !== undefined) checkPageSize(m.pageSize, `${path}.pageSize`);
   if (!Array.isArray(m.characters)) fail(path, 'expected array "characters"');
   if (!Array.isArray(m.scenes)) fail(path, 'expected array "scenes"');
   if (!Array.isArray(m.objects)) fail(path, 'expected array "objects"');
@@ -75,7 +96,17 @@ function checkIdArray(v: unknown, path: string, field: string): void {
   });
 }
 
-/** Shared shape for characters and objects: id/name/description + image/scene links. */
+/** Optional pageSize block (absent in projects written before it existed). */
+function checkPageSize(v: unknown, path: string): void {
+  if (!isRecord(v)) fail(path, 'expected pageSize object');
+  if (!isString(v.label)) fail(path, 'expected string "label"');
+  for (const k of ['widthIn', 'heightIn'] as const) {
+    if (!isFiniteNumber(v[k]) || (v[k] as number) <= 0) {
+      fail(path, `"${k}" must be a positive number`);
+    }
+  }
+}
+
 function checkStoryEntry(
   v: unknown,
   path: string,

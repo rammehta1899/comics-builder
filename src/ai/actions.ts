@@ -29,6 +29,7 @@ import type {
   LayerKind,
   MediaItem,
   Panel,
+  PageSize,
   Scene,
 } from '../types/comic';
 import { assertValidProject } from '../state/project';
@@ -73,7 +74,7 @@ export interface ComicBuilderDeps {
   getStorageStatus(): { connected: boolean; configured: boolean };
   /** Folders this app created (drive.file scope) — the complete project list. */
   listStorageProjects(): Promise<Array<{ id: string; name: string }>>;
-  createStorageProject(name: string): Promise<{ id: string; name: string }>;
+  createStorageProject(name: string, pageSize?: PageSize): Promise<{ id: string; name: string }>;
   openStorageProject(id: string): Promise<ActionResult>;
   closeStorageProject(): void;
   /** Refresh the tiles list and show the tiles screen (keeps project open). */
@@ -305,10 +306,13 @@ export function createComicBuilder(deps: ComicBuilderDeps) {
        * project.json (cover page, empty metadata) into it, and open it.
        * The new project appears in listProjects().
        * @param name - The project name; becomes the Drive folder name.
+       * @param pageSize - Optional { label, widthIn, heightIn } physical page
+       *   dimensions (see PAGE_SIZE_PRESETS in the data model). Defaults to
+       *   US Comic (6.625" × 10.25").
        * @returns A promise resolving to { id, name } of the new folder.
        */
-      createProject: (name: string): Promise<{ id: string; name: string }> =>
-        deps.createStorageProject(name),
+      createProject: (name: string, pageSize?: PageSize): Promise<{ id: string; name: string }> =>
+        deps.createStorageProject(name, pageSize),
 
       /**
        * Open a project: load the folder's project.json into the editor.
@@ -648,6 +652,27 @@ export function createComicBuilder(deps: ComicBuilderDeps) {
       setOutline: (text: string): ActionResult => {
         deps.updateProject((p) => {
           p.metadata.outline = text;
+        });
+        return { ok: true };
+      },
+
+      /**
+       * Set the physical page dimensions for the comic.
+       * @param pageSize - { label, widthIn, heightIn }, e.g. one of
+       *   PAGE_SIZE_PRESETS from the data model.
+       * @returns { ok: true }.
+       */
+      setPageSize: (pageSize: PageSize): ActionResult => {
+        if (
+          !pageSize ||
+          typeof pageSize.label !== 'string' ||
+          !(pageSize.widthIn > 0) ||
+          !(pageSize.heightIn > 0)
+        ) {
+          return { ok: false, error: 'pageSize needs { label, widthIn, heightIn }.' };
+        }
+        deps.updateProject((p) => {
+          p.metadata.pageSize = { ...pageSize };
         });
         return { ok: true };
       },

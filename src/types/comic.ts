@@ -122,6 +122,8 @@ export interface ComicObject {
 export interface ProjectMetadata {
   /** Story outline / synopsis. */
   outline: string;
+  /** Physical page dimensions for the comic. */
+  pageSize: PageSize;
   characters: Character[];
   scenes: Scene[];
   objects: ComicObject[];
@@ -143,7 +145,42 @@ export function formatPageNumber(n: number): string {
   return n.toString().padStart(2, '0');
 }
 
+// ---------------------------------------------------------------------------
+// Page size: physical comic dimensions, chosen at project creation.
+// ---------------------------------------------------------------------------
+
+/** Physical page dimensions for the comic. */
+export interface PageSize {
+  /** Preset label, e.g. 'US Comic (6.625" × 10.25")'. */
+  label: string;
+  /** Width in inches. */
+  widthIn: number;
+  /** Height in inches. */
+  heightIn: number;
+}
+
+/** Page-size presets offered when creating a project. */
+export const PAGE_SIZE_PRESETS: PageSize[] = [
+  { label: 'US Comic (6.625" × 10.25")', widthIn: 6.625, heightIn: 10.25 },
+  { label: 'US Trade (6" × 9")', widthIn: 6, heightIn: 9 },
+  { label: 'Manga B5 (6.93" × 9.84")', widthIn: 6.93, heightIn: 9.84 },
+  { label: 'A4 (8.27" × 11.69")', widthIn: 8.27, heightIn: 11.69 },
+  { label: 'Square (8" × 8")', widthIn: 8, heightIn: 8 },
+  { label: 'Portrait 4:5 (8" × 10")', widthIn: 8, heightIn: 10 },
+  { label: 'Landscape 16:9 (12" × 6.75")', widthIn: 12, heightIn: 6.75 },
+];
+
+/** Default page size for new projects (and old projects that predate pageSize). */
+export const DEFAULT_PAGE_SIZE: PageSize = PAGE_SIZE_PRESETS[0];
+
 /** An empty metadata block for new projects. */
-export function blankMetadata(): ProjectMetadata {
-  return { outline: '', characters: [], scenes: [], objects: [], media: [] };
+export function blankMetadata(pageSize: PageSize = DEFAULT_PAGE_SIZE): ProjectMetadata {
+  return {
+    outline: '',
+    pageSize: { ...pageSize },
+    characters: [],
+    scenes: [],
+    objects: [],
+    media: [],
+  };
 }

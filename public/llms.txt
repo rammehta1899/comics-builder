@@ -101,6 +101,9 @@ The new project appears in listProjects().
 
 Parameters:
   * name: - The project name; becomes the Drive folder name.
+  * pageSize: - Optional { label, widthIn, heightIn } physical page
+dimensions (see PAGE_SIZE_PRESETS in the data model). Defaults to
+US Comic (6.625" × 10.25").
 
 Returns: A promise resolving to { id, name } of the new folder.
 
@@ -283,6 +286,16 @@ Set the story outline / synopsis.
 
 Parameters:
   * text: - The new outline text.
+
+Returns: : true }.
+
+### ComicBuilder.metadata.setPageSize()
+
+Set the physical page dimensions for the comic.
+
+Parameters:
+  * pageSize: - { label, widthIn, heightIn }, e.g. one of
+PAGE_SIZE_PRESETS from the data model.
 
 Returns: : true }.
 
