@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { DragEvent, ReactNode } from 'react';
 import PanelView from './components/PanelView';
 import { installComicBuilder, uninstallComicBuilder } from './ai/actions';
 import type { ComicBuilderDeps } from './ai/actions';
@@ -61,6 +61,20 @@ export default function App() {
   const [folders, setFolders] = useState<Array<{ id: string; name: string }>>([]);
   const [status, setStatus] = useState('');
   const toastTimerRef = useRef<number | null>(null);
+  /** Drag-and-drop page reorder: index being dragged, and drop-target index. */
+  const [dragPageIdx, setDragPageIdx] = useState<number | null>(null);
+  const [dropPageIdx, setDropPageIdx] = useState<number | null>(null);
+
+  // Follow the OS light/dark setting for all Bootstrap chrome.
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const apply = () => {
+      document.documentElement.setAttribute('data-bs-theme', mq.matches ? 'dark' : 'light');
+    };
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
   /**
    * Show a transient popup message (toast) instead of an inline banner, so
    * notifications never take up page real estate. Auto-dismisses after 5s.
@@ -197,6 +211,36 @@ export default function App() {
       flashStatus(`Could not remove project: ${res.error ?? 'unknown error'}`);
     }
   }
+
+  /**
+   * Drag-and-drop props for a page button in the rail/footer. Dropping page A
+   * onto page B moves A to B's position via page.move().
+   */
+  const pageDragProps = (idx: number) => ({
+    draggable: true,
+    onDragStart: (e: DragEvent<HTMLButtonElement>) => {
+      e.dataTransfer.effectAllowed = 'move';
+      setDragPageIdx(idx);
+    },
+    onDragOver: (e: DragEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      setDropPageIdx(idx);
+    },
+    onDragLeave: () => setDropPageIdx((d) => (d === idx ? null : d)),
+    onDrop: (e: DragEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      if (dragPageIdx !== null && dragPageIdx !== idx) {
+        void cb().page.move(dragPageIdx, idx);
+      }
+      setDragPageIdx(null);
+      setDropPageIdx(null);
+    },
+    onDragEnd: () => {
+      setDragPageIdx(null);
+      setDropPageIdx(null);
+    },
+  });
 
   // Install window.ComicBuilder once. All helpers above use refs + setState,
   // so the deps never go stale.
@@ -407,7 +451,7 @@ export default function App() {
 
   if (screen === 'splash') {
     return (
-      <div className="min-vh-100 d-flex align-items-center justify-content-center bg-light p-3">
+      <div className="min-vh-100 d-flex align-items-center justify-content-center bg-body-tertiary p-3">
         <div className="card shadow" style={{ maxWidth: 540, width: '100%' }}>
           <div className="card-body p-4">
             <h1 className="card-title h4 mb-3">Connect to Google Drive</h1>
@@ -424,7 +468,7 @@ export default function App() {
               Why do we need this access?
             </button>
             <div className={`collapse${whyOpen ? ' show' : ''}`}>
-              <div className="card card-body bg-light small mb-3">
+              <div className="card card-body bg-body-tertiary small mb-3">
                 <p>
                   Comic Builder is a static website: it has no server and no database of its own.
                   Your comic's <code>project.json</code> and every artwork file live in a folder on{' '}
@@ -498,7 +542,7 @@ export default function App() {
         .catch((err: unknown) => flashStatus(err instanceof Error ? err.message : String(err)));
     };
     return (
-      <div className="min-vh-100 bg-light">
+      <div className="min-vh-100 bg-body">
         <div className="container py-4">
           <div className="d-flex justify-content-between align-items-center mb-4">
             <h1 className="h4 mb-0">Your comics</h1>
@@ -649,10 +693,10 @@ export default function App() {
 
   if (preview && currentPage) {
     return (
-      <div className="bg-dark min-vh-100">
+      <div className="bg-body min-vh-100">
         {statusToast}
         <div className="d-flex justify-content-between align-items-center p-3">
-          <span className="text-light">
+          <span className="text-body">
             Preview — Page {formatPageNumber(currentPage.number)} · {currentPage.title}
           </span>
           <button className="btn btn-outline-light btn-sm" onClick={() => cb().page.closePreview()}>
@@ -671,8 +715,8 @@ export default function App() {
   }
 
   return (
-    <div className="min-vh-100 d-flex flex-column bg-light">
-      <nav className="navbar navbar-dark bg-dark px-3">
+    <div className="min-vh-100 d-flex flex-column bg-body">
+      <nav className="navbar px-3 bg-body-tertiary">
         <span className="navbar-brand mb-0 h1 fs-5 text-truncate" style={{ maxWidth: '42vw' }}>
           {project?.title ?? 'Comic Builder'}
         </span>
@@ -758,7 +802,7 @@ export default function App() {
         </FixedMenu>
       )}
 
-      <ul className="nav nav-tabs px-3 pt-2 bg-white border-bottom d-none d-md-flex mb-0">
+      <ul className="nav nav-tabs px-3 pt-2 bg-body border-bottom d-none d-md-flex mb-0">
         {EDITOR_TABS.map((t) => (
           <li className="nav-item" key={t.id}>
             <button
@@ -777,15 +821,19 @@ export default function App() {
         <div className="d-flex flex-column flex-grow-1" style={{ minHeight: 0 }}>
           <div className="d-flex flex-grow-1" style={{ minHeight: 0 }}>
             <div
-              className="d-none d-md-flex flex-column align-items-stretch border-end bg-white py-2"
+              className="d-none d-md-flex flex-column align-items-stretch border-end bg-body py-2"
               style={{ width: 64, flexShrink: 0, overflowY: 'auto' }}
             >
               {(project?.pages ?? []).map((pg, idx) => (
                 <button
                   key={pg.id}
-                  title={pg.title}
+                  title={`${pg.title} — drag to reorder`}
+                  {...pageDragProps(idx)}
+                  style={{ cursor: 'grab' }}
                   className={`btn btn-sm mx-2 mb-1 px-0${
-                    idx === pageIndex ? ' btn-dark' : ' btn-outline-secondary'
+                    idx === pageIndex ? ' btn-primary' : ' btn-outline-secondary'
+                  }${dropPageIdx === idx ? ' border-primary border-2' : ''}${
+                    dragPageIdx === idx ? ' opacity-50' : ''
                   }`}
                   onClick={() => cb().page.select(idx)}
                 >
@@ -804,9 +852,35 @@ export default function App() {
             <main className="flex-grow-1 p-3 overflow-auto">
               {currentPage ? (
                 <>
-                  <h2 className="h5 mb-3">
-                    Page {formatPageNumber(currentPage.number)} — {currentPage.title}
-                  </h2>
+                  <div className="d-flex align-items-center gap-2 mb-3">
+                    <h2 className="h5 mb-0">
+                      Page {formatPageNumber(currentPage.number)} — {currentPage.title}
+                    </h2>
+                    <div
+                      className="btn-group btn-group-sm ms-auto"
+                      role="group"
+                      aria-label="Reorder pages"
+                    >
+                      <button
+                        className="btn btn-outline-secondary"
+                        title="Move page earlier"
+                        aria-label="Move page earlier"
+                        disabled={pageIndex <= 0}
+                        onClick={() => void cb().page.move(pageIndex, pageIndex - 1)}
+                      >
+                        ↑
+                      </button>
+                      <button
+                        className="btn btn-outline-secondary"
+                        title="Move page later"
+                        aria-label="Move page later"
+                        disabled={pageIndex >= (project?.pages.length ?? 1) - 1}
+                        onClick={() => void cb().page.move(pageIndex, pageIndex + 1)}
+                      >
+                        ↓
+                      </button>
+                    </div>
+                  </div>
                   <div className="panels">
                     {currentPage.panels.map((panel) => (
                       <PanelView key={panel.id} panel={panel} />
@@ -818,14 +892,18 @@ export default function App() {
               )}
             </main>
           </div>
-          <div className="d-md-none border-top bg-white py-2">
+          <div className="d-md-none border-top bg-body py-2">
             <div className="d-flex gap-2 px-3" style={{ overflowX: 'auto' }}>
               {(project?.pages ?? []).map((pg, idx) => (
                 <button
                   key={pg.id}
-                  title={pg.title}
+                  title={`${pg.title} — drag to reorder`}
+                  {...pageDragProps(idx)}
+                  style={{ cursor: 'grab' }}
                   className={`btn btn-sm px-3 flex-shrink-0${
-                    idx === pageIndex ? ' btn-dark' : ' btn-outline-secondary'
+                    idx === pageIndex ? ' btn-primary' : ' btn-outline-secondary'
+                  }${dropPageIdx === idx ? ' border-primary border-2' : ''}${
+                    dragPageIdx === idx ? ' opacity-50' : ''
                   }`}
                   onClick={() => cb().page.select(idx)}
                 >

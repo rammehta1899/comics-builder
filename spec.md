@@ -65,11 +65,15 @@ Google Drive API ◄── OAuth token (page memory) ── saveProjectJson()
    on mobile they are picked from a menu. The Pages tab has a thin
    page-number rail on the left for desktop and a horizontal scrolling
    page-number footer on mobile; page buttons call
-   `ComicBuilder.page.select(i)`; the main area renders the current page's
-   panels.
+   `ComicBuilder.page.select(i)` and support drag-and-drop reorder
+   (`ComicBuilder.page.move(from, to)`); the page header also has
+   move-earlier/move-later buttons for touch and keyboard users, and a
+   "+" button adds a page (`ComicBuilder.page.add(title?)`). The main area
+   renders the current page's panels. All app chrome follows the OS
+   light/dark setting via `prefers-color-scheme` (Bootstrap `data-bs-theme`).
 4. **Preview overlay** (`preview` boolean) — the current page's panels with
-   minimal chrome (page number/title + "Close preview"), rendered on a dark
-   background so an agent can screenshot a finished page. Preview is always
+   minimal chrome (page number/title + "Close preview"), rendered on a
+   theme-aware background so an agent can screenshot a finished page. Preview is always
    per-page, never the whole project. Entered via
    `ComicBuilder.page.openPreview()`, exited via `closePreview()`.
 
@@ -122,7 +126,7 @@ Namespaces:
   `createProject(name)`, `openProject(idOrName)`, `closeProject()`,
   `removeProject(idOrName)`, `showProjects()`, `save()`
 - `project` — `load(data)` (replace the whole project from JSON, validated)
-- `page` — `count()`, `select(i)`, `current()`, `add(title?)`,
+- `page` — `count()`, `select(i)`, `current()`, `add(title?)`, `move(from, to)`,
   `openPreview()`, `closePreview()`
 - `layers` — `list(panelId)`, `get(panelId, layerId)`, `add(panelId, layer)`,
   `update(panelId, layerId, patch)`, `delete(panelId, layerId)`

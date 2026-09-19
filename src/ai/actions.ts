@@ -457,6 +457,41 @@ export function createComicBuilder(deps: ComicBuilderDeps) {
         })(),
 
       /**
+       * Move a page to a new position (the UI's drag-and-drop calls this).
+       * Page numbers are reassigned (00, 01, 02, …) and the moved page stays
+       * selected.
+       * @param from - 0-based index of the page to move.
+       * @param to - 0-based destination index.
+       * @returns A promise resolving to { ok, error? }.
+       */
+      move: (from: number, to: number): Promise<ActionResult> =>
+        (async (): Promise<ActionResult> => {
+          const p = deps.getProject();
+          if (!p) return { ok: false, error: 'No project is open.' };
+          const n = p.pages.length;
+          if (
+            !Number.isInteger(from) ||
+            !Number.isInteger(to) ||
+            from < 0 ||
+            from >= n ||
+            to < 0 ||
+            to >= n
+          ) {
+            return { ok: false, error: `Page index out of range (0–${n - 1}).` };
+          }
+          if (from === to) return { ok: true };
+          deps.updateProject((proj) => {
+            const [moved] = proj.pages.splice(from, 1);
+            proj.pages.splice(to, 0, moved);
+            proj.pages.forEach((pg, i) => {
+              pg.number = i;
+            });
+          });
+          deps.setPageIndex(to);
+          return { ok: true };
+        })(),
+
+      /**
        * Open preview mode: the current page rendered full-bleed with all its
        * panels, minimal chrome, for visual review. An agent can screenshot the
        * preview and show it to the user.

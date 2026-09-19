@@ -162,6 +162,18 @@ Parameters:
 Returns: A promise resolving to { ok, index?, error? } with the new
 0-based page index.
 
+### ComicBuilder.page.move()
+
+Move a page to a new position (the UI's drag-and-drop calls this).
+Page numbers are reassigned (00, 01, 02, …) and the moved page stays
+selected.
+
+Parameters:
+  * from: - 0-based index of the page to move.
+  * to: - 0-based destination index.
+
+Returns: A promise resolving to { ok, error? }.
+
 ### ComicBuilder.page.count()
 
 Number of pages in the open project.
