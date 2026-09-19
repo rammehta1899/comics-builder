@@ -1,1 +1,203 @@
-{"$defs":{"Bubble":{"properties":{"id":{"type":"string"},"kind":{"enum":["speech","thought","caption"],"type":"string"},"tailX":{"description":"Optional pointer target, % of panel width.","type":"number"},"tailY":{"description":"Optional pointer target, % of panel height.","type":"number"},"text":{"type":"string"},"width":{"description":"Width as a percentage of panel width.","type":"number"},"x":{"description":"Left offset as a percentage of panel width.","type":"number"},"y":{"description":"Top offset as a percentage of panel height.","type":"number"}},"required":["id","kind","text","x","y","width"],"type":"object"},"ComicPage":{"properties":{"id":{"type":"string"},"number":{"description":"Zero-based page index; displayed as 00, 01, 02, ...","minimum":0,"type":"integer"},"panels":{"items":{"$ref":"#/$defs/Panel"},"type":"array"},"title":{"type":"string"}},"required":["id","number","title","panels"],"type":"object"},"Layer":{"properties":{"driveFileId":{"description":"Google Drive file id; the app downloads the bytes when src is empty.","type":"string"},"id":{"type":"string"},"kind":{"enum":["background","foreground"],"type":"string"},"name":{"type":"string"},"opacity":{"maximum":1,"minimum":0,"type":"number"},"rotation":{"description":"Rotation in degrees.","type":"number"},"src":{"description":"Image URL: https URL, blob URL, or data URL. May be empty when driveFileId is set (resolved at load).","type":"string"},"visible":{"type":"boolean"},"width":{"description":"Width as a percentage of panel width. Aspect ratio is preserved; never stretch.","type":"number"},"x":{"description":"Left offset as a percentage of panel width.","type":"number"},"y":{"description":"Top offset as a percentage of panel height.","type":"number"}},"required":["id","name","kind","src","visible","x","y","width","rotation","opacity"],"type":"object"},"Panel":{"properties":{"bubbles":{"items":{"$ref":"#/$defs/Bubble"},"type":"array"},"id":{"type":"string"},"layers":{"items":{"$ref":"#/$defs/Layer"},"type":"array"},"title":{"description":"Optional panel caption shown above the canvas.","type":"string"}},"required":["id","layers","bubbles"],"type":"object"}},"$id":"schema/comic-project.schema.json","$schema":"https://json-schema.org/draft/2020-12/schema","description":"A generic Comic Builder project: pages of panels, each panel compositing image layers with speech bubbles on top. Page numbers are 0-based and displayed as 00, 01, 02, ...","properties":{"id":{"description":"Unique project id.","type":"string"},"pages":{"items":{"$ref":"#/$defs/ComicPage"},"type":"array"},"title":{"description":"Project title shown in the header.","type":"string"},"updatedAt":{"description":"ISO timestamp of the last save.","format":"date-time","type":"string"}},"required":["id","title","pages"],"title":"ComicProject","type":"object"}
+{
+  "$defs": {
+    "Bubble": {
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "enum": ["speech", "thought", "caption"], "type": "string" },
+        "tailX": { "description": "Optional pointer target, % of panel width.", "type": "number" },
+        "tailY": { "description": "Optional pointer target, % of panel height.", "type": "number" },
+        "text": { "type": "string" },
+        "width": { "description": "Width as a percentage of panel width.", "type": "number" },
+        "x": { "description": "Left offset as a percentage of panel width.", "type": "number" },
+        "y": { "description": "Top offset as a percentage of panel height.", "type": "number" }
+      },
+      "required": ["id", "kind", "text", "x", "y", "width"],
+      "type": "object"
+    },
+    "Character": {
+      "properties": {
+        "description": {
+          "description": "Visual description + continuity notes for image-prompt generation.",
+          "type": "string"
+        },
+        "id": { "type": "string" },
+        "imageIds": {
+          "description": "MediaItem ids (transparent PNG reference art).",
+          "items": { "type": "string" },
+          "type": "array"
+        },
+        "name": { "type": "string" },
+        "sceneIds": {
+          "description": "Scene ids this character appears in.",
+          "items": { "type": "string" },
+          "type": "array"
+        }
+      },
+      "required": ["id", "name", "description", "imageIds", "sceneIds"],
+      "type": "object"
+    },
+    "ComicObject": {
+      "properties": {
+        "description": {
+          "description": "Visual description + continuity notes for image-prompt generation.",
+          "type": "string"
+        },
+        "id": { "type": "string" },
+        "imageIds": {
+          "description": "MediaItem ids (reference art for the object).",
+          "items": { "type": "string" },
+          "type": "array"
+        },
+        "name": { "type": "string" },
+        "sceneIds": {
+          "description": "Scene ids where the object appears.",
+          "items": { "type": "string" },
+          "type": "array"
+        }
+      },
+      "required": ["id", "name", "description", "imageIds", "sceneIds"],
+      "type": "object"
+    },
+    "ComicPage": {
+      "properties": {
+        "id": { "type": "string" },
+        "number": {
+          "description": "Zero-based page index; displayed as 00, 01, 02, ...",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "panels": { "items": { "$ref": "#/$defs/Panel" }, "type": "array" },
+        "title": { "type": "string" }
+      },
+      "required": ["id", "number", "title", "panels"],
+      "type": "object"
+    },
+    "Layer": {
+      "properties": {
+        "driveFileId": {
+          "description": "Google Drive file id; the app downloads the bytes when src is empty.",
+          "type": "string"
+        },
+        "id": { "type": "string" },
+        "kind": { "enum": ["background", "foreground"], "type": "string" },
+        "mediaId": {
+          "description": "Optional id into metadata.media: the MediaItem this layer's artwork came from.",
+          "type": "string"
+        },
+        "name": { "type": "string" },
+        "opacity": { "maximum": 1, "minimum": 0, "type": "number" },
+        "rotation": { "description": "Rotation in degrees.", "type": "number" },
+        "src": {
+          "description": "Image URL: https URL, blob URL, or data URL. May be empty when driveFileId is set (resolved at load).",
+          "type": "string"
+        },
+        "visible": { "type": "boolean" },
+        "width": {
+          "description": "Width as a percentage of panel width. Aspect ratio is preserved; never stretch.",
+          "type": "number"
+        },
+        "x": { "description": "Left offset as a percentage of panel width.", "type": "number" },
+        "y": { "description": "Top offset as a percentage of panel height.", "type": "number" }
+      },
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "src",
+        "visible",
+        "x",
+        "y",
+        "width",
+        "rotation",
+        "opacity"
+      ],
+      "type": "object"
+    },
+    "MediaItem": {
+      "properties": {
+        "driveFileId": {
+          "description": "Google Drive file id of the image in the project folder.",
+          "type": "string"
+        },
+        "id": { "type": "string" },
+        "mimeType": { "description": "e.g. image/png.", "type": "string" },
+        "name": { "type": "string" },
+        "url": {
+          "description": "Drive URL for the file. Fetching the bytes needs a valid Drive access token.",
+          "type": "string"
+        }
+      },
+      "required": ["id", "name", "driveFileId", "url", "mimeType"],
+      "type": "object"
+    },
+    "Panel": {
+      "properties": {
+        "bubbles": { "items": { "$ref": "#/$defs/Bubble" }, "type": "array" },
+        "id": { "type": "string" },
+        "layers": { "items": { "$ref": "#/$defs/Layer" }, "type": "array" },
+        "title": {
+          "description": "Optional panel caption shown above the canvas.",
+          "type": "string"
+        }
+      },
+      "required": ["id", "layers", "bubbles"],
+      "type": "object"
+    },
+    "ProjectMetadata": {
+      "description": "Story bible + media registry for the project.",
+      "properties": {
+        "characters": { "items": { "$ref": "#/$defs/Character" }, "type": "array" },
+        "media": { "items": { "$ref": "#/$defs/MediaItem" }, "type": "array" },
+        "objects": { "items": { "$ref": "#/$defs/ComicObject" }, "type": "array" },
+        "outline": { "description": "Story outline / synopsis.", "type": "string" },
+        "scenes": { "items": { "$ref": "#/$defs/Scene" }, "type": "array" }
+      },
+      "required": ["outline", "characters", "scenes", "objects", "media"],
+      "type": "object"
+    },
+    "Scene": {
+      "properties": {
+        "characterIds": {
+          "description": "Character ids that appear in this scene.",
+          "items": { "type": "string" },
+          "type": "array"
+        },
+        "description": {
+          "description": "Setting description: location, time of day, mood, lighting.",
+          "type": "string"
+        },
+        "id": { "type": "string" },
+        "imageIds": {
+          "description": "MediaItem ids (reference art for the scene).",
+          "items": { "type": "string" },
+          "type": "array"
+        },
+        "name": { "type": "string" }
+      },
+      "required": ["id", "name", "description", "characterIds", "imageIds"],
+      "type": "object"
+    }
+  },
+  "$id": "schema/comic-project.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "A generic Comic Builder project: pages of panels, each panel compositing image layers with speech bubbles on top, plus a story-bible metadata block (outline, characters, scenes, objects, media registry). Page numbers are 0-based and displayed as 00, 01, 02, ...",
+  "properties": {
+    "id": { "description": "Unique project id.", "type": "string" },
+    "metadata": { "$ref": "#/$defs/ProjectMetadata" },
+    "pages": { "items": { "$ref": "#/$defs/ComicPage" }, "type": "array" },
+    "savedAt": {
+      "description": "ISO timestamp of the last autosave write to Drive. Shown in the header as the 'Saved …' line.",
+      "format": "date-time",
+      "type": "string"
+    },
+    "title": { "description": "Project title shown in the header.", "type": "string" },
+    "updatedAt": {
+      "description": "ISO timestamp of the last content change.",
+      "format": "date-time",
+      "type": "string"
+    }
+  },
+  "required": ["id", "title", "pages", "savedAt", "metadata"],
+  "title": "ComicProject",
+  "type": "object"
+}

@@ -1,101 +1,463 @@
-# Comic Builder
+# ComicBuilder — AI command API for Comic Builder
 
-> A generic, static comic-builder web app. It renders a comic project — pages,
-> panels, image layers, and speech bubbles — from a JSON project file. It is not
-> tied to any one comic: point it at any project file and it renders that.
->
-> Images and the project file live on the user's own Google Drive; the app is a
-> static site and talks to Drive client-side via Google OAuth (drive.file scope:
-> only files the app created or the user opened with it).
->
-> Drive is the only project source. The app opens behind a Drive connect gate —
-> the editor is unreachable until the user connects — and every change
-> autosaves to `project.json` in the project folder (~2 seconds after the last
-> edit). There are no manual open/save buttons in the UI.
+> Command API for Comic Builder.
 
-## Driving the app as an agent
+The app exposes this API on `window.ComicBuilder` once it has loaded.
+Every UI control calls the same functions — one code path, no drift.
+In the browser console (or via automation), start with `ComicBuilder.help()`.
 
-The app exposes a command API on `window.comicBuilder` once it has loaded. This
-is the primary way for an AI agent — or any script running in the page — to
-operate the app instead of clicking through the UI. Start with
-`comicBuilder.help()`.
+## Conventions — read before acting
 
-Commands (synchronous unless noted):
+- The first Drive connect needs a REAL HUMAN CLICK on the connect button:
+  `ComicBuilder.storage.connect()` starts the OAuth flow but browsers block
+  popups from injected scripts, so an agent cannot complete it alone.
+- Reads (`page.select`, `layers.list`, `characters.get`, …) return deep-cloned
+  snapshots: inspect them freely, but mutating a snapshot changes nothing.
+  All writes go through the action functions.
+- A panel has no separate background field: the background is the layer
+  whose `kind` is `"background"` (conventionally the first layer).
+- Bubbles always render above all layers.
+- Every mutation autosaves: `project.json` is written to Drive ~2s after the
+  last change. `storage.save()` flushes immediately.
+- Drive scope is `drive.file`: the app only sees folders and files IT created.
+  `storage.listProjects()` is the complete project list.
+- `media.url` values need a valid Drive access token to fetch bytes; hand them
+  to `<img>` or image models, never invent URLs.
 
-- `comicBuilder.version` — API version string
-- `comicBuilder.help()` — one-line description of every command
-- `comicBuilder.getProject()` — current ComicProject as an object (null while loading)
-- `comicBuilder.exportProject()` — current project as a JSON string (null while loading)
-- `comicBuilder.loadProject(json)` — replace the whole project with validated JSON
-  (object or JSON string); returns `{ ok, error? }`
-- `comicBuilder.getPageCount()` / `comicBuilder.getPageIndex()` / `comicBuilder.selectPage(i)`
-  — page navigation; `selectPage` takes a 0-based index and returns false when out of range
-- `comicBuilder.getCurrentPage()` — the shown page as an object (null while loading)
-- `comicBuilder.saveLocal()` — persist to the browser's localStorage; returns an ISO
-  timestamp, or null when there is nothing to save
-- `comicBuilder.saveToDrive()` — async; flush any pending autosave to Drive
-  immediately; returns `{ ok, error? }`
-- `comicBuilder.openFromDrive()` — async; reload `project.json` from the Drive
-  folder, discarding unsaved changes; returns `{ ok, error? }`
-- `comicBuilder.getStatus()` — last human-readable status line shown in the UI
-- `comicBuilder.driveStatus()` — `{ connected, configured }`
+## version — API version string, e.g. "2.0.0".
 
-Example session (paste into the browser console, or run via automation):
+## help — Render the full skill-style reference for this API: conventions plus every namespace and function with its description, parameters, and return value. This text is generated at build time from the JSDoc in src/ai/actions.ts, so it never drifts from the code.
 
-```js
-const p = comicBuilder.getProject();          // read
-p.pages[1].title = "The Hallway";             // edit the data, not the DOM
-const r = comicBuilder.loadProject(p);        // validate + render; r.ok === true
-// no save call needed — the app autosaves to Drive ~2s after the change
-```
+## storage — Google Drive storage: OAuth, project folders, and project.json IO.
+
+### ComicBuilder.storage.save()
+
+Flush any pending autosave to Drive immediately. The app autosaves
+~2s after each change on its own; this only hurries it.
+
+Returns: A promise resolving to { ok, error? }.
+
+### ComicBuilder.storage.status()
+
+Report Drive connection state.
+
+Returns: , configured }: connected means an unexpired token is in memory; configured means a Google OAuth client ID is set.
+
+### ComicBuilder.storage.connect()
+
+Start the Google Drive OAuth flow (GIS popup).
+MUST be called from a real human click: browsers block OAuth popups
+from injected scripts, so an agent calling this alone cannot complete
+the flow. Ask the user to click the "Connect with Google Drive" button.
+Resolves once the access token is in memory. The token is never
+written to web storage; reloading the page drops it (one click
+reconnects).
+
+Returns: A promise that resolves when Drive access is granted.
+
+### ComicBuilder.storage.disconnect()
+
+Disconnect Drive: revoke the grant at Google AND clear the remembered
+folder id. Full sign-out — the next connect re-prompts for permission.
+(Reloading the page alone does NOT revoke; it only drops the
+in-memory token, and one click reconnects silently.)
+
+Returns: A promise that resolves when disconnection is complete.
+
+### ComicBuilder.storage.openProject()
+
+Open a project: load the folder's project.json into the editor.
+
+Parameters:
+  * idOrName: - The folder id from listProjects(), or the project/folder name.
+
+Returns: A promise resolving to { ok, error? }.
+
+### ComicBuilder.storage.listProjects()
+
+List every project folder this app created on Drive (files.list under
+the drive.file scope). This is the complete project list — the app is
+blind to everything else on the user's Drive.
+
+Returns: A promise resolving to [{ id, name }] of project folders.
+
+### ComicBuilder.storage.closeProject()
+
+Close the current project: drop it from the editor and return to the
+project tiles. Does not delete anything on Drive.
+
+### ComicBuilder.storage.showProjects()
+
+Go back to the project tiles page, refreshing the folder list.
+The current project (if any) stays open in the background.
+
+Returns: A promise resolving to [{ id, name }] of project folders.
+
+### ComicBuilder.storage.createProject()
+
+Create a new project: create the Drive folder, write a blank
+project.json (cover page, empty metadata) into it, and open it.
+The new project appears in listProjects().
+
+Parameters:
+  * name: - The project name; becomes the Drive folder name.
+
+Returns: A promise resolving to { id, name } of the new folder.
+
+## project — Whole-project operations on the currently open project.
+
+### ComicBuilder.project.load()
+
+Replace the whole project with validated JSON (object or JSON string).
+Validation follows public/schema/comic-project.schema.json; the error
+names the failing path (e.g. project.pages[2].panels[0].layers[1]).
+This is the primary editing path for bulk changes: read snapshots via
+page/layers/bubbles/metadata, modify client-side, load the result.
+Geometry (x/y/width/rotation/opacity) is preserved exactly.
+
+Parameters:
+  * data: - A ComicProject object or its JSON string.
+
+Returns: , error? }.
+
+## page — Page navigation and preview for the open project.
+
+### ComicBuilder.page.count()
+
+Number of pages in the open project.
+
+Returns: The page count, or 0 when no project is open.
+
+### ComicBuilder.page.select()
+
+Show page i and return it. Pages are 0-based; the UI displays them as
+00, 01, 02, …
+
+Parameters:
+  * i: - 0-based page index.
+
+Returns: A deep-cloned ComicPage snapshot (panels with layers and bubbles), or null when i is out of range or no project is open. Snapshots are read-only: mutating them changes nothing.
+
+### ComicBuilder.page.current()
+
+The currently shown page.
+
+Returns: A deep-cloned ComicPage snapshot, or null when no project is open. Read-only.
+
+### ComicBuilder.page.openPreview()
+
+Open preview mode: the current page rendered full-bleed with all its
+panels, minimal chrome, for visual review. An agent can screenshot the
+preview and show it to the user.
+
+### ComicBuilder.page.closePreview()
+
+Close preview mode and return to the editor.
+
+## layers — Image layers inside a panel, addressed by panel id (see the id fields
+
+### ComicBuilder.layers.get()
+
+Get one layer.
+
+Parameters:
+  * panelId: - The panel id.
+  * layerId: - The layer id.
+
+Returns: A deep-cloned Layer snapshot, or null when not found. Read-only.
+
+### ComicBuilder.layers.add()
+
+Add an image layer (e.g. a transparent PNG) to a panel. It is appended
+on top. Position it afterwards with update().
+
+Parameters:
+  * panelId: - The panel id.
+  * input: - { name, kind?, src?, mediaId?, driveFileId?, visible?, x?, y?, width?, rotation?, opacity? }. x/y/width are % of panel size; kind defaults to "foreground"; geometry defaults to x:0, y:0, width:100, rotation:0, opacity:1, visible:true.
+
+Returns: The new Layer (live reference inside the project).
+
+### ComicBuilder.layers.list()
+
+List the layers of a panel, bottom-to-top.
+
+Parameters:
+  * panelId: - The panel id.
+
+Returns: Deep-cloned Layer snapshots, or null when the panel is not found. Read-only.
+
+### ComicBuilder.layers.update()
+
+Update a layer: move (x/y), resize (width), rotate, change opacity or
+visibility, rename, or relink its artwork (src/mediaId/driveFileId).
+Only the given fields change.
+
+Parameters:
+  * panelId: - The panel id.
+  * layerId: - The layer id.
+  * patch: - Partial layer fields.
+
+Returns: A deep-cloned Layer snapshot of the updated layer, or null when the panel/layer is not found.
+
+### ComicBuilder.layers.delete()
+
+Delete a layer from a panel.
+
+Parameters:
+  * panelId: - The panel id.
+  * layerId: - The layer id.
+
+Returns: True when a layer was removed, false when not found.
+
+## bubbles — Speech/thought/caption bubbles inside a panel, addressed by panel id.
+
+### ComicBuilder.bubbles.add()
+
+Add a bubble to a panel.
+
+Parameters:
+  * panelId: - The panel id.
+  * input: - { kind?, text, x?, y?, width?, tailX?, tailY? }. kind defaults to "speech"; x/y/width are % of panel size.
+
+Returns: The new Bubble.
+
+### ComicBuilder.bubbles.list()
+
+List the bubbles of a panel.
+
+Parameters:
+  * panelId: - The panel id.
+
+Returns: Deep-cloned Bubble snapshots, or null when the panel is not found. Read-only.
+
+### ComicBuilder.bubbles.update()
+
+Update a bubble: text, kind, position, size, or tail target.
+Only the given fields change.
+
+Parameters:
+  * panelId: - The panel id.
+  * bubbleId: - The bubble id.
+  * patch: - Partial bubble fields.
+
+Returns: A deep-cloned Bubble snapshot of the updated bubble, or null when not found.
+
+### ComicBuilder.bubbles.delete()
+
+Delete a bubble from a panel.
+
+Parameters:
+  * panelId: - The panel id.
+  * bubbleId: - The bubble id.
+
+Returns: True when a bubble was removed, false when not found.
+
+## metadata — The project's story bible: outline plus the media registry.
+
+### ComicBuilder.metadata.get()
+
+Read the whole metadata block (outline, characters, scenes, objects, media).
+
+Returns: A deep-cloned metadata snapshot. Read-only: mutate via the dedicated functions.
+
+### ComicBuilder.metadata.setOutline()
+
+Set the story outline / synopsis.
+
+Parameters:
+  * text: - The new outline text.
+
+Returns: : true }.
+
+## characters — Characters in the story bible. A character's description sets its visual
+
+### ComicBuilder.characters.get()
+
+Get one character with its full description and image/scene links.
+
+Parameters:
+  * id: - The character id.
+
+Returns: A deep-cloned Character snapshot, or null when not found. Read-only.
+
+### ComicBuilder.characters.list()
+
+List characters.
+
+Returns: [{ id, name }] for every character.
+
+### ComicBuilder.characters.create()
+
+Create a character.
+
+Parameters:
+  * input: - { name, description?, imageIds?, linkIds? }: linkIds are scene ids the character appears in.
+
+Returns: The new Character.
+
+### ComicBuilder.characters.update()
+
+Update a character's name, description, or image/scene links.
+Only the given fields change.
+
+Parameters:
+  * id: - The character id.
+  * patch: - { name?, description?, imageIds?, linkIds? }.
+
+Returns: A deep-cloned Character snapshot, or null when not found.
+
+### ComicBuilder.characters.delete()
+
+Delete a character. References from scenes are left dangling and
+documented as such; clean them with scenes.update if needed.
+
+Parameters:
+  * id: - The character id.
+
+Returns: True when a character was removed, false when not found.
+
+## scenes — Scenes/locations in the story bible. A scene's description covers the
+
+### ComicBuilder.scenes.get()
+
+Get one scene with its full description and character/image links.
+
+Parameters:
+  * id: - The scene id.
+
+Returns: A deep-cloned Scene snapshot, or null when not found. Read-only.
+
+### ComicBuilder.scenes.list()
+
+List scenes.
+
+Returns: [{ id, name }] for every scene.
+
+### ComicBuilder.scenes.create()
+
+Create a scene.
+
+Parameters:
+  * input: - { name, description?, imageIds?, linkIds? }: linkIds are character ids appearing in the scene.
+
+Returns: The new Scene.
+
+### ComicBuilder.scenes.update()
+
+Update a scene's name, description, or character/image links.
+Only the given fields change.
+
+Parameters:
+  * id: - The scene id.
+  * patch: - { name?, description?, imageIds?, linkIds? }.
+
+Returns: A deep-cloned Scene snapshot, or null when not found.
+
+### ComicBuilder.scenes.delete()
+
+Delete a scene. References from characters/objects are left dangling;
+clean them with characters.update / objects.update if needed.
+
+Parameters:
+  * id: - The scene id.
+
+Returns: True when a scene was removed, false when not found.
+
+## objects — Props/objects in the story bible. Same shape as characters: a visual
+
+### ComicBuilder.objects.get()
+
+Get one object with its full description and image/scene links.
+
+Parameters:
+  * id: - The object id.
+
+Returns: A deep-cloned ComicObject snapshot, or null when not found. Read-only.
+
+### ComicBuilder.objects.list()
+
+List objects.
+
+Returns: [{ id, name }] for every object.
+
+### ComicBuilder.objects.create()
+
+Create an object.
+
+Parameters:
+  * input: - { name, description?, imageIds?, linkIds? }: linkIds are scene ids where the object appears.
+
+Returns: The new ComicObject.
+
+### ComicBuilder.objects.update()
+
+Update an object's name, description, or image/scene links.
+Only the given fields change.
+
+Parameters:
+  * id: - The object id.
+  * patch: - { name?, description?, imageIds?, linkIds? }.
+
+Returns: A deep-cloned ComicObject snapshot, or null when not found.
+
+### ComicBuilder.objects.delete()
+
+Delete an object.
+
+Parameters:
+  * id: - The object id.
+
+Returns: True when an object was removed, false when not found.
+
+## media — The project's media registry: image files in the Drive project folder.
+
+### ComicBuilder.media.get()
+
+Get one media entry.
+
+Parameters:
+  * id: - The media id.
+
+Returns: A deep-cloned MediaItem snapshot, or null when not found. Read-only. Note: fetching media.url bytes needs a valid Drive access token.
+
+### ComicBuilder.media.list()
+
+List every registered media file.
+
+Returns: Deep-cloned MediaItem snapshots. Read-only.
+
+### ComicBuilder.media.upload()
+
+Upload image bytes to the current project folder on Drive and register
+the file in metadata.media. Use this for LLM-generated art: upload the
+PNG, then wire the returned id into a layer (mediaId) or a character /
+scene / object (imageIds).
+
+Parameters:
+  * name: - File name, e.g. "hero-front.png".
+  * dataUrl: - The image bytes as a data: URL (e.g. from a generated PNG).
+  * opts: - Optional { mimeType }: defaults to "image/png".
+
+Returns: A promise resolving to the new MediaItem.
 
 ## Data model
 
-- `ComicProject`: `{ id, title, pages[], updatedAt }`
-- `ComicPage`: `{ id, number, title, panels[] }` — `number` is 0-based; the UI shows
-  it as `00`, `01`, `02`, …
+- `ComicProject`: `{ id, title, pages[], updatedAt, savedAt, metadata }`
+- `ComicPage`: `{ id, number, title, panels[] }` — `number` is 0-based, shown as 00, 01, …
 - `Panel`: `{ id, title?, layers[], bubbles[] }`
-- `Layer`: `{ id, name, kind: "background" | "foreground", src, driveFileId?,
-  visible, x, y, width, rotation, opacity }` — `x`/`y`/`width` are percentages of
-  the panel; aspect ratio is always preserved, never stretched
-- `Bubble`: `{ id, kind: "speech" | "thought" | "caption", text, x, y, width,
-  tailX?, tailY? }`
+- `Layer`: `{ id, name, kind: "background" | "foreground", src, driveFileId?, mediaId?, visible, x, y, width, rotation, opacity }` — `x`/`y`/`width` are % of panel size; aspect ratio preserved, never stretched
+- `Bubble`: `{ id, kind: "speech" | "thought" | "caption", text, x, y, width, tailX?, tailY? }`
+- `ProjectMetadata`: `{ outline, characters[], scenes[], objects[], media[] }`
+- `Character` / `ComicObject`: `{ id, name, description, imageIds[], sceneIds[] }`
+- `Scene`: `{ id, name, description, characterIds[], imageIds[] }`
+- `MediaItem`: `{ id, name, driveFileId, url, mimeType }`
 
 Machine-readable schema: `schema/comic-project.schema.json` (JSON Schema, draft 2020-12).
-Minimal example project: `data/sample-project.json`.
 
-## Capabilities and limits — read before acting
+## Key URLs (relative to the app root)
 
-- Drive-gated and autosaving: the editor only appears after the user connects
-  Google Drive, and every project change (UI or `loadProject()`) is written to
-  `project.json` in the project folder ~2 seconds after the last edit. There are
-  no open/save buttons in the UI. `saveToDrive()` only flushes a pending
-  autosave early; `openFromDrive()` reloads from Drive, discarding unsaved changes.
+The app is served under `/comics-builder/` on GitHub Pages:
 
-- Rendering is currently read-only in the UI: layers and bubbles are displayed, not
-  drag-edited. To change artwork, layout, or text, build a new project JSON and load
-  it with `loadProject()` — geometry (`x`/`y`/`width`/`rotation`/`opacity`,
-  visibility, stacking order) is preserved exactly as given.
-- `loadProject()` replaces the whole project. There is no partial or page-level
-  patch API yet: read the project, modify the object client-side, and load the full
-  result. When the user talks about one specific page, change only that page's data
-  and keep everything else byte-identical.
-- Google Drive: the first "Connect Drive" click must come from a real user gesture —
-  browsers block programmatic OAuth popups, so an agent cannot complete the connect
-  step alone. Ask the user to click "Connect Google Drive". Once connected,
-  `saveToDrive()` / `openFromDrive()` work without further clicks.
-- Drive access tokens last ~1 hour and are held only in memory — never in
-  web storage. Reloading the page drops the token, so the user clicks
-  "Connect Google Drive" once per browser session; when a token expires the
-  user is asked to reconnect.
-- Local saves go to `localStorage` under `cb_local_project`; the previous copy is
-  always kept as `cb_local_project_backup`. Never silently discard the backup.
-- Never invent layer image URLs. Use `src` values already in the project, `data:` URLs
-  you generated, or `driveFileId`s of files that exist in the project folder.
-
-## Key URLs (relative to the site root)
-
-- `/` — the app
-- `/llms.txt` — this file
-- `/schema/comic-project.schema.json` — JSON Schema of the project model
-- `/data/sample-project.json` — minimal example project
+- `/comics-builder/` — the app
+- `/comics-builder/llms.txt` — this file
+- `/comics-builder/schema/comic-project.schema.json` — JSON Schema of the project model

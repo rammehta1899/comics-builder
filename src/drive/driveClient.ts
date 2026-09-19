@@ -26,9 +26,9 @@
  * localStorage and a reconnect re-opens the same folder.
  */
 
-const GIS_SCRIPT_URL = "https://accounts.google.com/gsi/client";
-const DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file";
-const FOLDER_STORAGE_KEY = "cb_drive_folder";
+const GIS_SCRIPT_URL = 'https://accounts.google.com/gsi/client';
+const DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const FOLDER_STORAGE_KEY = 'cb_drive_folder';
 
 interface StoredToken {
   access_token: string;
@@ -57,13 +57,12 @@ function loadGisScript(): Promise<void> {
       resolve();
       return;
     }
-    const script = document.createElement("script");
+    const script = document.createElement('script');
     script.src = GIS_SCRIPT_URL;
     script.async = true;
     script.defer = true;
     script.onload = () => resolve();
-    script.onerror = () =>
-      reject(new Error("Failed to load Google Identity Services script."));
+    script.onerror = () => reject(new Error('Failed to load Google Identity Services script.'));
     document.head.appendChild(script);
   });
   return gisLoadPromise;
@@ -111,9 +110,7 @@ export function clearDriveAccess(): void {
 export async function requestDriveAccess(): Promise<string> {
   const clientId = getClientId();
   if (!clientId) {
-    throw new Error(
-      "Google OAuth client ID is not configured. Set VITE_GOOGLE_CLIENT_ID."
-    );
+    throw new Error('Google OAuth client ID is not configured. Set VITE_GOOGLE_CLIENT_ID.');
   }
   await loadGisScript();
   return new Promise((resolve, reject) => {
@@ -134,7 +131,7 @@ export async function requestDriveAccess(): Promise<string> {
         error_callback: (err: unknown) =>
           reject(err instanceof Error ? err : new Error(String(err))),
       });
-      tokenClient.requestAccessToken({ prompt: "consent" });
+      tokenClient.requestAccessToken({ prompt: 'consent' });
     } catch (e) {
       reject(e instanceof Error ? e : new Error(String(e)));
     }
@@ -154,12 +151,9 @@ export async function disconnectDrive(): Promise<void> {
 // Drive API helpers (fetch-based, no gapi needed)
 // ---------------------------------------------------------------------------
 
-async function driveFetch(
-  path: string,
-  init: RequestInit = {}
-): Promise<Response> {
+async function driveFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const token = getAccessToken();
-  if (!token) throw new Error("Not connected to Google Drive.");
+  if (!token) throw new Error('Not connected to Google Drive.');
   const res = await fetch(`https://www.googleapis.com/drive/v3${path}`, {
     ...init,
     headers: {
@@ -168,7 +162,7 @@ async function driveFetch(
     },
   });
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
+    const body = await res.text().catch(() => '');
     throw new Error(`Drive API error ${res.status}: ${body.slice(0, 200)}`);
   }
   return res;
@@ -181,28 +175,32 @@ export interface DriveFileMeta {
   thumbnailLink?: string;
 }
 
+/** List folders this app created (drive.file scope restricts to app-created files). */
+export async function listProjectFolders(): Promise<Array<{ id: string; name: string }>> {
+  const q = encodeURIComponent("mimeType='application/vnd.google-apps.folder' and trashed=false");
+  const res = await driveFetch(`/files?q=${q}&fields=files(id,name)&orderBy=name&pageSize=100`);
+  const data = await res.json();
+  return (data.files || []) as Array<{ id: string; name: string }>;
+}
+
 /** Find (or create) the folder that holds this comic's files. */
-export async function ensureProjectFolder(
-  folderName: string
-): Promise<DriveFileMeta> {
+export async function ensureProjectFolder(folderName: string): Promise<DriveFileMeta> {
   const q = encodeURIComponent(
     `mimeType='application/vnd.google-apps.folder' and name='${folderName.replace(
       /'/g,
       "\\'"
     )}' and trashed=false`
   );
-  const res = await driveFetch(
-    `/files?q=${q}&fields=files(id,name,mimeType)&pageSize=1`
-  );
+  const res = await driveFetch(`/files?q=${q}&fields=files(id,name,mimeType)&pageSize=1`);
   const data = await res.json();
   if (data.files?.length) return data.files[0] as DriveFileMeta;
 
-  const create = await driveFetch("/files?fields=id,name,mimeType", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+  const create = await driveFetch('/files?fields=id,name,mimeType', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       name: folderName,
-      mimeType: "application/vnd.google-apps.folder",
+      mimeType: 'application/vnd.google-apps.folder',
     }),
   });
   return (await create.json()) as DriveFileMeta;
@@ -232,20 +230,20 @@ export async function uploadImage(
     [
       `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n`,
       JSON.stringify(metadata),
-      `\r\n--${boundary}\r\nContent-Type: ${file.type || "image/png"}\r\n\r\n`,
+      `\r\n--${boundary}\r\nContent-Type: ${file.type || 'image/png'}\r\n\r\n`,
       file,
       `\r\n--${boundary}--`,
     ],
     { type: `multipart/related; boundary=${boundary}` }
   );
   const token = getAccessToken();
-  if (!token) throw new Error("Not connected to Google Drive.");
+  if (!token) throw new Error('Not connected to Google Drive.');
   const res = await fetch(
-    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType",
-    { method: "POST", headers: { Authorization: `Bearer ${token}` }, body }
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType',
+    { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body }
   );
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
+    const text = await res.text().catch(() => '');
     throw new Error(`Drive upload failed (${res.status}): ${text.slice(0, 200)}`);
   }
   return (await res.json()) as DriveFileMeta;
@@ -258,10 +256,7 @@ export async function downloadFile(fileId: string): Promise<Blob> {
 }
 
 /** Save the project JSON into the project folder (creates or overwrites project.json). */
-export async function saveProjectJson(
-  folderId: string,
-  project: unknown
-): Promise<DriveFileMeta> {
+export async function saveProjectJson(folderId: string, project: unknown): Promise<DriveFileMeta> {
   const json = JSON.stringify(project, null, 2);
   const q = encodeURIComponent(
     `'${folderId}' in parents and name='project.json' and trashed=false`
@@ -270,23 +265,23 @@ export async function saveProjectJson(
   const existing = (await list.json()).files?.[0];
 
   const token = getAccessToken();
-  if (!token) throw new Error("Not connected to Google Drive.");
-  const body = new Blob([json], { type: "application/json" });
+  if (!token) throw new Error('Not connected to Google Drive.');
+  const body = new Blob([json], { type: 'application/json' });
 
   if (existing) {
     const res = await fetch(
       `https://www.googleapis.com/upload/drive/v3/files/${existing.id}?uploadType=media`,
       {
-        method: "PATCH",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body,
       }
     );
     if (!res.ok) throw new Error(`Drive update failed (${res.status}).`);
-    return { id: existing.id, name: "project.json", mimeType: "application/json" };
+    return { id: existing.id, name: 'project.json', mimeType: 'application/json' };
   }
 
-  const metadata = { name: "project.json", parents: [folderId] };
+  const metadata = { name: 'project.json', parents: [folderId] };
   const boundary = `cb-${Date.now()}`;
   const multipart = new Blob(
     [
@@ -299,8 +294,8 @@ export async function saveProjectJson(
     { type: `multipart/related; boundary=${boundary}` }
   );
   const res = await fetch(
-    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType",
-    { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: multipart }
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType',
+    { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: multipart }
   );
   if (!res.ok) throw new Error(`Drive upload failed (${res.status}).`);
   return (await res.json()) as DriveFileMeta;
@@ -313,7 +308,7 @@ export async function loadProjectJson(folderId: string): Promise<unknown> {
   );
   const list = await driveFetch(`/files?q=${q}&fields=files(id)&pageSize=1`);
   const file = (await list.json()).files?.[0];
-  if (!file) throw new Error("No project.json found in this Drive folder.");
+  if (!file) throw new Error('No project.json found in this Drive folder.');
   const res = await driveFetch(`/files/${file.id}?alt=media`);
   return await res.json();
 }
@@ -328,4 +323,9 @@ export function getStoredFolderId(): string | null {
 
 export function storeFolderId(id: string): void {
   localStorage.setItem(FOLDER_STORAGE_KEY, id);
+}
+
+/** Forget the remembered project folder (used on full Drive disconnect). */
+export function clearStoredFolderId(): void {
+  localStorage.removeItem(FOLDER_STORAGE_KEY);
 }

@@ -1,137 +1,54 @@
 # Comic Builder
 
-A generic comic-builder web app. It renders a comic project — pages, panels,
-layers, and speech bubbles — from a JSON project file. It is **not** tied to
-any one comic: point it at any project file (local or on Google Drive) and it
-renders that.
+Build and edit a comic (or graphic novel) in your browser. Your comic is
+stored as a `project.json` plus artwork files in a folder on **your Google
+Drive** — the app is a static site with no server of its own.
 
-Comic images and the project file live on **your Google Drive**, not on any
-server. The app is a static site; all Drive access happens client-side via
-Google OAuth.
-
-## Structure
-
-```
-comics-builder/
-├── .github/workflows/deploy.yml   # build + deploy to GitHub Pages
-├── public/data/sample-project.json# placeholder project shown on first load
-├── src/
-│   ├── types/comic.ts             # ComicProject / Page / Panel / Layer / Bubble
-│   ├── drive/
-│   │   ├── driveClient.ts         # GIS OAuth + Drive API (upload/list/download)
-│   │   └── DriveConnect.tsx       # first-open "connect Drive" prompt
-│   ├── state/project.ts           # load project from file / sample / Drive
-│   ├── components/
-│   │   ├── PageRail.tsx           # left page navigation (00, 01, 02, …)
-│   │   └── PanelView.tsx          # panel canvas: layers + bubbles
-│   ├── App.tsx                    # shell: header actions, rail, page view
-│   └── main.tsx
-└── dist/                          # build output (generated, not committed)
-```
-
-## Run locally
+## Run it locally
 
 ```bash
 npm install
-cp .env.example .env   # then fill in VITE_GOOGLE_CLIENT_ID
-npm run dev            # http://localhost:5173
-npm run build          # outputs static files to dist/
-npm run preview        # serve the built dist/ locally
+npm run dev
 ```
 
-## Google OAuth client ID setup (required for Drive)
+Open the printed URL. Connect your Google Drive once per session, then open
+an existing project folder or create a new one. Every edit autosaves to Drive
+about two seconds after you stop typing.
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-   → APIs & Services → Credentials.
-2. Create Credentials → **OAuth client ID** → type **Web application**.
-3. Under **Authorized JavaScript origins** add:
-   - `http://localhost:5173` (local dev)
-   - `https://<your-github-username>.github.io` (deployed site)
-4. Enable the **Google Drive API** for the project
-   (APIs & Services → Library → search "Google Drive API" → Enable).
-5. Copy the client ID.
+## Google Drive setup
 
-Local dev: put it in `.env` as `VITE_GOOGLE_CLIENT_ID=...`.
+The app talks to Drive through an OAuth web client:
 
-Deployed site: add it as a GitHub repo secret named `GOOGLE_CLIENT_ID`
-(Settings → Secrets and variables → Actions). The deploy workflow passes it
-into the build as `VITE_GOOGLE_CLIENT_ID`.
+1. Create a Google Cloud project, enable the Google Drive API, and create an
+   **OAuth client ID** of type "Web application".
+2. Add your origins as Authorized JavaScript origins (e.g.
+   `https://rammehta1899.github.io` and `http://localhost:5173`). No redirect
+   URIs and no client secret are needed.
+3. For local dev: `VITE_GOOGLE_CLIENT_ID=<your-client-id> npm run dev`
+   (put it in `.env.local`, which is gitignored).
+4. For the deployed site: store the same value as the `GOOGLE_CLIENT_ID`
+   repository secret — the deploy workflow reads it into
+   `VITE_GOOGLE_CLIENT_ID` at build time.
 
-The app requests only the `drive.file` scope: it can see, create, and edit
-**only** the Drive files it created or that you opened with it — not the rest
-of your Drive.
+The app asks for the `drive.file` scope only: it can see and touch just the
+files and folders it created, nothing else on your Drive. The token lives only
+in page memory — reloading the page drops it, one click reconnects, and
+disconnecting revokes the grant at Google.
 
-## Saving
+## Deploy
 
-Google Drive is the only project store, and saving is automatic: every change
-is written to `project.json` in the project folder ~2 seconds after the last
-edit, with a visible "Saving… / Saved HH:MM:SS" state in the header. There are
-no manual save buttons.
+Pushing to `main` runs the `Deploy to GitHub Pages` workflow, which builds
+`dist/` (including the service worker and build metadata) and publishes it.
 
-- **Export JSON** downloads the project as a `.json` file.
-- The Drive folder name in the header picks which folder's comic loads —
-  changing it loads that folder's project (or starts a blank one there).
+## For AI agents
 
-## How Drive is used
+Open the browser console on any page of the app and type:
 
-- **First open:** the app checks for a valid Drive access token. If there is
-  none, a connect gate explains that your comic's images and project file
-  live on your Google Drive — the editor is unreachable until you click
-  "Connect Google Drive" (OAuth popup). There is no skip option.
-- **Loading:** connecting finds (or creates) the folder with the name you
-  typed and loads `project.json` from it; an empty folder starts a blank
-  comic. Layer images referenced by `driveFileId` are downloaded and
-  displayed. Changing the folder name loads that folder's comic instead.
-- **Autosave:** every project change is written back to `project.json` in
-  that folder ~2 seconds after the last edit. Use `uploadImage()` in
-  `src/drive/driveClient.ts` to add images to the folder.
-- Tokens are held only in memory with an expiry (~1 hour); reloading the
-  page drops the token, so you click "Connect Google Drive" once per browser
-  session. "Disconnect Drive" revokes the token at Google and returns you to
-  the connect gate. Tokens are never written to web storage.
+```js
+ComicBuilder.help();
+```
 
-## Deploy action
-
-`.github/workflows/deploy.yml` runs on every push to `main` and can also be
-triggered manually from the Actions tab (**workflow_dispatch**). It installs
-dependencies, runs `npm run build` (Vite → `dist/`), uploads `dist/` as a
-Pages artifact, and deploys it to GitHub Pages.
-
-One-time repo setup for Pages: Settings → Pages → Source → **GitHub Actions**.
-
-Note: `vite.config.ts` sets `base: "/comics-builder/"`. If you name the repo
-differently, update that value to `"/<repo-name>/"` so asset URLs resolve on
-Pages.
-
-## Project JSON format
-
-A project is a `ComicProject`: `{ id, title, pages[] }`. Each page has
-`{ id, number, title, panels[] }`; each panel has `{ id, title?, layers[],
-bubbles[] }`. A layer is `{ id, name, kind: "background" | "foreground",
-src, driveFileId?, visible, x, y, width, rotation, opacity }` where `x/y/width`
-are percentages of the panel. A bubble is `{ id, kind: "speech" | "thought" |
-"caption", text, x, y, width, tailX?, tailY? }`.
-
-See `public/data/sample-project.json` for a minimal example and
-`src/types/comic.ts` for the full types.
-
-## AI / agent access
-
-The app is built to be driven by AI agents as well as by clicks:
-
-- **`llms.txt`** (served at `/llms.txt` relative to the site root, i.e.
-  `/comics-builder/llms.txt` on GitHub Pages): describes the app, the
-  `window.comicBuilder` command API, the data model, and the capabilities
-  and limits an agent must respect.
-- **`window.comicBuilder`**: a command API installed by the app
-  (`src/ai/agentApi.ts`). Agents can read the project
-  (`getProject()`/`exportProject()`), replace it with validated JSON
-  (`loadProject()`), navigate pages (`selectPage()`), save locally
-  (`saveLocal()`), and use Drive (`saveToDrive()`/`openFromDrive()`).
-  Start with `comicBuilder.help()`.
-- **`schema/comic-project.schema.json`**: JSON Schema (draft 2020-12) for
-  `ComicProject`, so agents can construct and validate project JSON.
-
-Notes: `loadProject()` replaces the whole project (no partial patch API
-yet). The first Drive "Connect" click must come from a real user gesture —
-browsers block programmatic OAuth popups.
+That prints the full skill: every action is documented via JSDoc-derived
+`.toString()` docs on the runtime API. A static copy lives at `llms.txt`
+(next to this README). The engineering design — architecture, data model,
+Drive scope, autosave, service worker, build pipeline — is in `spec.md`.

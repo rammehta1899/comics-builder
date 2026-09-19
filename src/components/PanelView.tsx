@@ -1,5 +1,5 @@
-import { useState } from "react";
-import type { Panel } from "../types/comic";
+import { useState } from 'react';
+import type { Panel } from '../types/comic';
 
 interface Props {
   panel: Panel;
@@ -43,7 +43,7 @@ export default function PanelView({ panel }: Props) {
                 width: `${layer.width}%`,
                 opacity: layer.opacity,
                 transform: `rotate(${layer.rotation}deg)`,
-                zIndex: layer.kind === "background" ? 1 : 2,
+                zIndex: layer.kind === 'background' ? 1 : 2,
               }}
               draggable={false}
             />
@@ -59,16 +59,21 @@ export default function PanelView({ panel }: Props) {
         ))}
       </div>
       {panel.layers.length > 0 && (
-        <div className="layer-toggles">
+        <div className="p-2 border-top d-flex flex-wrap gap-2">
           {panel.layers.map((l) => (
-            <label key={l.id} className="layer-toggle">
+            <div className="form-check form-switch" key={l.id}>
               <input
+                className="form-check-input"
                 type="checkbox"
+                role="switch"
+                id={`layer-${l.id}`}
                 checked={!hidden.has(l.id)}
                 onChange={() => toggleLayer(l.id)}
               />
-              {l.name}
-            </label>
+              <label className="form-check-label small" htmlFor={`layer-${l.id}`}>
+                {l.name}
+              </label>
+            </div>
           ))}
         </div>
       )}
