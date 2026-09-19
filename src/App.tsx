@@ -7,6 +7,7 @@ import {
   awaitDeviceAccess,
   cancelDeviceAccess,
   clearStoredFolderId,
+  deleteProjectFolder,
   disconnectDrive,
   downloadFile,
   ensureProjectFolder,
@@ -59,6 +60,36 @@ export default function App() {
   const [pageIndex, setPageIndex] = useState(0);
   const [folders, setFolders] = useState<Array<{ id: string; name: string }>>([]);
   const [status, setStatus] = useState('');
+  const toastTimerRef = useRef<number | null>(null);
+  /**
+   * Show a transient popup message (toast) instead of an inline banner, so
+   * notifications never take up page real estate. Auto-dismisses after 5s.
+   */
+  const flashStatus = (msg: string) => {
+    setStatus(msg);
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = null;
+    if (msg) {
+      toastTimerRef.current = window.setTimeout(() => setStatus(''), 5000);
+    }
+  };
+  const statusToast = status ? (
+    <div
+      className="toast show position-fixed bottom-0 start-50 translate-middle-x mb-3"
+      role="status"
+      style={{ zIndex: 1080, minWidth: 280, maxWidth: '90vw' }}
+    >
+      <div className="toast-body d-flex align-items-center gap-2">
+        <span className="flex-grow-1">{status}</span>
+        <button
+          type="button"
+          className="btn-close"
+          aria-label="Dismiss"
+          onClick={() => flashStatus('')}
+        />
+      </div>
+    </div>
+  ) : null;
   const [deviceCode, setDeviceCode] = useState<DeviceCodeInfo | null>(null);
   const [tab, setTab] = useState<EditorTab>('pages');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -107,7 +138,7 @@ export default function App() {
       return true;
     } catch (e) {
       setSaveState('error');
-      setStatus(`Autosave failed: ${e instanceof Error ? e.message : e}`);
+      flashStatus(`Autosave failed: ${e instanceof Error ? e.message : e}`);
       return false;
     } finally {
       savingRef.current = false;
@@ -116,7 +147,7 @@ export default function App() {
 
   /** Load project.json from a folder into the editor. */
   async function openFolder(id: string, name: string): Promise<{ ok: boolean; error?: string }> {
-    setStatus('Loading project…');
+    flashStatus('Loading project…');
     try {
       const raw = await loadProjectJson(id);
       assertValidProject(raw);
@@ -131,11 +162,11 @@ export default function App() {
       setPreview(false);
       setTab('pages');
       setScreen('editor');
-      setStatus(`Opened "${raw.title}".`);
+      flashStatus(`Opened "${raw.title}".`);
       return { ok: true };
     } catch (e) {
       const msg = `Could not open "${name}": ${e instanceof Error ? e.message : e}`;
-      setStatus(msg);
+      flashStatus(msg);
       return { ok: false, error: msg };
     }
   }
@@ -146,8 +177,24 @@ export default function App() {
       setFolders(list);
       return list;
     } catch (e) {
-      setStatus(`Could not list Drive folders: ${e instanceof Error ? e.message : e}`);
+      flashStatus(`Could not list Drive folders: ${e instanceof Error ? e.message : e}`);
       return [];
+    }
+  }
+
+  async function removeTileProject(id: string, name: string): Promise<void> {
+    if (
+      !window.confirm(
+        `Remove "${name}"? This permanently deletes the project folder from Google Drive and cannot be undone.`
+      )
+    ) {
+      return;
+    }
+    const res = await cb().storage.removeProject(id);
+    if (res.ok) {
+      flashStatus(`Removed "${name}".`);
+    } else {
+      flashStatus(`Could not remove project: ${res.error ?? 'unknown error'}`);
     }
   }
 
@@ -184,33 +231,33 @@ export default function App() {
 
       setPreview: (open) => setPreview(open),
 
-      setStatus: (msg) => setStatus(msg),
+      setStatus: (msg) => flashStatus(msg),
 
       connectStorage: async () => {
         try {
           await requestDriveAccess();
           await refreshTiles();
           setScreen('tiles');
-          setStatus('');
+          flashStatus('');
         } catch (e) {
-          setStatus(`Could not connect: ${e instanceof Error ? e.message : e}`);
+          flashStatus(`Could not connect: ${e instanceof Error ? e.message : e}`);
         }
       },
 
       connectStorageWithDevice: async () => {
         const info = await requestDeviceAccess();
         setDeviceCode(info);
-        setStatus(`Go to ${info.url} and enter code ${info.code} to connect.`);
+        flashStatus(`Go to ${info.url} and enter code ${info.code} to connect.`);
         void (async () => {
           try {
             await awaitDeviceAccess();
             await refreshTiles();
             setDeviceCode(null);
             setScreen('tiles');
-            setStatus('');
+            flashStatus('');
           } catch (e) {
             setDeviceCode(null);
-            setStatus(`Could not connect: ${e instanceof Error ? e.message : e}`);
+            flashStatus(`Could not connect: ${e instanceof Error ? e.message : e}`);
           }
         })();
         return info;
@@ -234,7 +281,7 @@ export default function App() {
         setTab('pages');
         setSaveState('idle');
         setScreen('splash');
-        setStatus('Disconnected from Google Drive.');
+        flashStatus('Disconnected from Google Drive.');
       },
 
       getStorageStatus: () => ({
@@ -268,7 +315,7 @@ export default function App() {
         setPreview(false);
         setTab('pages');
         setScreen('editor');
-        setStatus(`Created "${clean}".`);
+        flashStatus(`Created "${clean}".`);
         return { id: folder.id, name: folder.name };
       },
 
@@ -287,7 +334,17 @@ export default function App() {
         setTab('pages');
         setSaveState('idle');
         void refreshTiles().then(() => setScreen('tiles'));
-        setStatus('Project closed.');
+        flashStatus('Project closed.');
+      },
+
+      removeStorageProject: async (id) => {
+        try {
+          await deleteProjectFolder(id);
+          await refreshTiles();
+          return { ok: true };
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : String(e) };
+        }
       },
 
       showProjectTiles: async () => {
@@ -391,7 +448,7 @@ export default function App() {
                 </p>
               </div>
             </div>
-            {status && <div className="alert alert-warning">{status}</div>}
+            {statusToast}
             <button
               className="btn btn-primary btn-lg w-100"
               onClick={() => void cb().storage.connect()}
@@ -438,7 +495,7 @@ export default function App() {
           setNewName('');
           setPageSizeIdx(0);
         })
-        .catch((err: unknown) => setStatus(err instanceof Error ? err.message : String(err)));
+        .catch((err: unknown) => flashStatus(err instanceof Error ? err.message : String(err)));
     };
     return (
       <div className="min-vh-100 bg-light">
@@ -446,19 +503,55 @@ export default function App() {
           <div className="d-flex justify-content-between align-items-center mb-4">
             <h1 className="h4 mb-0">Your comics</h1>
           </div>
-          {status && <div className="alert alert-info">{status}</div>}
+          {statusToast}
           <div className="row g-3">
             {folders.map((f) => (
               <div className="col-12 col-sm-6 col-md-4" key={f.id}>
                 <div className="card h-100 shadow-sm">
                   <div className="card-body d-flex flex-column">
                     <h2 className="card-title h6 text-truncate">{f.name}</h2>
-                    <button
-                      className="btn btn-primary mt-auto align-self-start"
-                      onClick={() => void cb().storage.openProject(f.id)}
-                    >
-                      Open
-                    </button>
+                    <div className="mt-auto d-flex gap-2">
+                      <button
+                        className="btn btn-primary btn-sm"
+                        title="Open project"
+                        aria-label={`Open ${f.name}`}
+                        onClick={() => void cb().storage.openProject(f.id)}
+                      >
+                        <svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 16 16"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h3l1.5 2h4.5A1.5 1.5 0 0 1 14 6.5v5A1.5 1.5 0 0 1 12.5 13h-9A1.5 1.5 0 0 1 2 11.5v-7z" />
+                        </svg>
+                      </button>
+                      <button
+                        className="btn btn-outline-danger btn-sm"
+                        title="Remove project"
+                        aria-label={`Remove ${f.name}`}
+                        onClick={() => void removeTileProject(f.id, f.name)}
+                      >
+                        <svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 16 16"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M2.5 4h11M6.5 4V2.5h3V4M4 4l.8 9.2a1 1 0 0 0 1 .8h4.4a1 1 0 0 0 1-.8L12 4M6.5 6.5v4M9.5 6.5v4" />
+                        </svg>
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -557,6 +650,7 @@ export default function App() {
   if (preview && currentPage) {
     return (
       <div className="bg-dark min-vh-100">
+        {statusToast}
         <div className="d-flex justify-content-between align-items-center p-3">
           <span className="text-light">
             Preview — Page {formatPageNumber(currentPage.number)} · {currentPage.title}
@@ -677,12 +771,7 @@ export default function App() {
         ))}
       </ul>
 
-      {status && (
-        <div className="alert alert-info alert-dismissible m-2 mb-0 py-2">
-          {status}
-          <button className="btn-close btn-sm" aria-label="Dismiss" onClick={() => setStatus('')} />
-        </div>
-      )}
+      {statusToast}
 
       {tab === 'pages' && (
         <div className="d-flex flex-column flex-grow-1" style={{ minHeight: 0 }}>

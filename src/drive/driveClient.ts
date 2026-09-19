@@ -385,6 +385,11 @@ export async function ensureProjectFolder(folderName: string): Promise<DriveFile
   return (await create.json()) as DriveFileMeta;
 }
 
+/** Delete a project folder (and everything in it) from Drive. */
+export async function deleteProjectFolder(folderId: string): Promise<void> {
+  await driveFetch(`/files/${encodeURIComponent(folderId)}`, { method: 'DELETE' });
+}
+
 /** List image files inside a folder (newest first). */
 export async function listImages(folderId: string): Promise<DriveFileMeta[]> {
   const q = encodeURIComponent(

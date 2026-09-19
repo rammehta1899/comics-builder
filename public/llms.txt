@@ -107,6 +107,16 @@ US Comic (6.625" × 10.25").
 
 Returns: A promise resolving to { id, name } of the new folder.
 
+### ComicBuilder.storage.removeProject()
+
+Remove a project: permanently delete the project folder
+(project.json and all artwork) from Google Drive. Cannot be undone.
+
+Parameters:
+  * idOrName: - The folder id from listProjects(), or the project/folder name.
+
+Returns: A promise resolving to { ok, error? }.
+
 ### ComicBuilder.storage.connectWithDevice()
 
 Start the Google Drive OAuth device flow — for headless browsers

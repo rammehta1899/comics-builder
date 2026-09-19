@@ -46,10 +46,15 @@ Google Drive API ◄── OAuth token (page memory) ── saveProjectJson()
    dashed "New project" tile. The new-project name and page size (preset:
    US Comic, US Trade, Manga B5, A4, Square, Portrait 4:5, Landscape 16:9)
    are collected in a Bootstrap modal and stored in
-   `metadata.pageSize`. Each tile opens through
-   `ComicBuilder.storage.openProject(id)`. Connection is implicit — no
+   `metadata.pageSize`. Each tile has icon buttons: open (folder) goes through
+   `ComicBuilder.storage.openProject(id)`; remove (trash) asks for
+   confirmation, then permanently deletes the project folder from Drive via
+   `ComicBuilder.storage.removeProject(id)`. Connection is implicit — no
    connected-status indicator and no disconnect button anywhere in the UI
    (disconnect stays available as `ComicBuilder.storage.disconnect()`).
+   Transient notifications ("Created …", errors, etc.) appear as auto-
+   dismissing toast popups fixed to the viewport bottom — never as inline
+   banners that consume page space.
 3. **Editor** (`editor`) — Bootstrap dark navbar with the project title
    from `project.json`, a Saving/Saved indicator derived from `savedAt`,
    and a dropdown menu: Open project (back to tiles), Preview this page,
@@ -90,9 +95,9 @@ driveFileId?, mediaId?, visible, x, y, width, rotation, opacity }`.
 width, tailX?, tailY? }`. Bubbles always render above all layers.
 - `ProjectMetadata` — `{ outline, pageSize, characters[], scenes[],
 objects[], media[] }`: the story bible plus the media registry.
-`pageSize` is `{ label, widthIn, heightIn }`, chosen at creation from
-`PAGE_SIZE_PRESETS` (old projects without it load with the US Comic
-default).
+  `pageSize` is `{ label, widthIn, heightIn }`, chosen at creation from
+  `PAGE_SIZE_PRESETS` (old projects without it load with the US Comic
+  default).
 - `Character` / `ComicObject` — `{ id, name, description, imageIds[],
 sceneIds[] }`. The description carries visual continuity guidance.
 - `Scene` — `{ id, name, description, characterIds[], imageIds[] }`.
@@ -115,7 +120,7 @@ Namespaces:
 - `version`, `help()`
 - `storage` — `connect()`, `connectWithDevice()`, `disconnect()`, `status()`, `listProjects()`,
   `createProject(name)`, `openProject(idOrName)`, `closeProject()`,
-  `showProjects()`, `save()`
+  `removeProject(idOrName)`, `showProjects()`, `save()`
 - `project` — `load(data)` (replace the whole project from JSON, validated)
 - `page` — `count()`, `select(i)`, `current()`, `openPreview()`,
   `closePreview()`

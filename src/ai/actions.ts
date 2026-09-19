@@ -77,6 +77,8 @@ export interface ComicBuilderDeps {
   createStorageProject(name: string, pageSize?: PageSize): Promise<{ id: string; name: string }>;
   openStorageProject(id: string): Promise<ActionResult>;
   closeStorageProject(): void;
+  /** Delete a project folder from Drive and refresh the tiles. */
+  removeStorageProject(id: string): Promise<ActionResult>;
   /** Refresh the tiles list and show the tiles screen (keeps project open). */
   showProjectTiles(): Promise<Array<{ id: string; name: string }>>;
   /** Flush any pending autosave to Drive now. */
@@ -335,6 +337,23 @@ export function createComicBuilder(deps: ComicBuilderDeps) {
        * project tiles. Does not delete anything on Drive.
        */
       closeProject: (): void => deps.closeStorageProject(),
+
+      /**
+       * Remove a project: permanently delete the project folder
+       * (project.json and all artwork) from Google Drive. Cannot be undone.
+       * @param idOrName - The folder id from listProjects(), or the project/folder name.
+       * @returns A promise resolving to { ok, error? }.
+       */
+      removeProject: (idOrName: string): Promise<ActionResult> =>
+        (async (): Promise<ActionResult> => {
+          const folders = await deps.listStorageProjects();
+          const match =
+            folders.find((f) => f.id === idOrName) ?? folders.find((f) => f.name === idOrName);
+          if (!match) {
+            return { ok: false, error: `No project folder "${idOrName}".` };
+          }
+          return deps.removeStorageProject(match.id);
+        })(),
 
       /**
        * Go back to the project tiles page, refreshing the folder list.
