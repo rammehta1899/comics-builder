@@ -4,13 +4,22 @@ import { requestDriveAccess, getClientId } from "./driveClient";
 interface Props {
   onConnected: () => void;
   onSkip: () => void;
+  /**
+   * When false (the default), the dialog is a hard gate: the user must
+   * connect Drive to proceed. Pass true only where skipping is allowed.
+   */
+  allowSkip?: boolean;
 }
 
 /**
  * Shown on first open when there is no valid Google Drive access.
  * Explains in plain language why access is needed and asks for it.
  */
-export default function DriveConnect({ onConnected, onSkip }: Props) {
+export default function DriveConnect({
+  onConnected,
+  onSkip,
+  allowSkip = false,
+}: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const configured = !!getClientId();
@@ -57,7 +66,12 @@ export default function DriveConnect({ onConnected, onSkip }: Props) {
           >
             {busy ? "Connecting…" : "Connect Google Drive"}
           </button>
-          <button className="btn-ghost" onClick={onSkip} disabled={busy}>
+          <button
+            className="btn-ghost"
+            onClick={onSkip}
+            disabled={busy}
+            hidden={!allowSkip}
+          >
             Continue without Drive
           </button>
         </div>

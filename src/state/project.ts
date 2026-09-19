@@ -3,9 +3,11 @@ import type { ComicProject } from "../types/comic";
 /**
  * Project loading sources. The builder is generic: it renders whatever
  * ComicProject JSON it is given — nothing is hardcoded to any one comic.
+ * Google Drive is the only project source: the app loads project.json from
+ * the user's Drive folder and autosaves every change back to it.
  */
 
-/** Load the bundled placeholder project (used when no Drive project is open). */
+/** Load the bundled placeholder project (used for docs/demos only). */
 export async function loadSampleProject(): Promise<ComicProject> {
   const url = `${import.meta.env.BASE_URL}data/sample-project.json`;
   const res = await fetch(url);
@@ -13,12 +15,15 @@ export async function loadSampleProject(): Promise<ComicProject> {
   return (await res.json()) as ComicProject;
 }
 
-/** Load a project from a local .json file picked by the user. */
-export async function loadProjectFromFile(file: File): Promise<ComicProject> {
-  const text = await file.text();
-  const parsed = JSON.parse(text) as ComicProject;
-  assertValidProject(parsed);
-  return parsed;
+/** A fresh, empty project used when the Drive folder has no project.json yet. */
+export function createBlankProject(title = "Untitled Comic"): ComicProject {
+  const now = new Date().toISOString();
+  return {
+    id: `comic-${Date.now().toString(36)}`,
+    title,
+    updatedAt: now,
+    pages: [{ id: "page-cover", number: 0, title: "Cover", panels: [] }],
+  };
 }
 
 /** Download the current project as a .json file. */

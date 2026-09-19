@@ -16,155 +16,189 @@ import {
   disconnectDrive,
 } from "./drive/driveClient";
 import {
-  loadSampleProject,
-  loadProjectFromFile,
+  createBlankProject,
   downloadProject,
   saveProjectLocal,
-  loadProjectLocal,
+  assertValidProject,
 } from "./state/project";
 import type { ComicProject } from "./types/comic";
 import "./App.css";
 
+/**
+ * Drive-gated, autosaving app shell.
+ *
+ * - The editor is unreachable until the user connects Google Drive
+ *   (the connect dialog is a hard gate, not a dismissible prompt).
+ * - Google Drive is the only project source: on connect the app loads
+ *   project.json from the project folder, creating a blank project when
+ *   the folder is empty.
+ * - Every project change autosaves to Drive a couple of seconds after
+ *   the last edit. There are no manual save/open buttons.
+ */
 export default function App() {
   const [project, setProject] = useState<ComicProject | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
   const [driveReady, setDriveReady] = useState(hasDriveAccess());
-  const [showDrivePrompt, setShowDrivePrompt] = useState(false);
+  const [showGate, setShowGate] = useState(false);
   const [folderName, setFolderName] = useState("My Comic");
   const [status, setStatus] = useState<string>("");
-  const [busy, setBusy] = useState(false);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [lastSaved, setLastSaved] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Refs mirror state so the agent API (installed once) always sees
+  // Refs mirror state so callbacks and the agent API always see
   // the latest values.
   const projectRef = useRef<ComicProject | null>(null);
   const pageIndexRef = useRef(0);
   const statusRef = useRef("");
+  const folderIdRef = useRef<string | null>(null);
+  const savingRef = useRef(false);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   projectRef.current = project;
   pageIndexRef.current = pageIndex;
   statusRef.current = status;
 
-  // First open: restore browser-saved work if present, else the placeholder
-  // project. Then check Drive access.
+  // First open: Drive is required before anything else.
   useEffect(() => {
-    const local = loadProjectLocal();
-    if (local) {
-      setProject(local);
-      setLastSaved(local.updatedAt ?? null);
-      setStatus("Restored your last saved work from this browser.");
+    if (hasDriveAccess()) {
+      setDriveReady(true);
+      void loadFromDrive();
     } else {
-      loadSampleProject()
-        .then(setProject)
-        .catch((e) => setStatus(`Could not load sample project: ${e.message}`));
+      setShowGate(true);
     }
-    if (!hasDriveAccess()) {
-      setShowDrivePrompt(true); // first-open Drive prompt
-    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const currentPage = project?.pages[pageIndex] ?? null;
-
-  async function handleOpenFromDrive(): Promise<{
-    ok: boolean;
-    error?: string;
-  }> {
-    if (!getAccessToken()) {
-      setShowDrivePrompt(true);
-      return { ok: false, error: "Not connected to Google Drive." };
-    }
-    setBusy(true);
-    setStatus("");
-    try {
-      const folder = await ensureProjectFolder(folderName || "My Comic");
-      storeFolderId(folder.id);
-      const loaded = (await loadProjectJson(folder.id)) as ComicProject;
-      // Resolve Drive-hosted layer images to blob URLs for display.
-      for (const page of loaded.pages) {
-        for (const panel of page.panels) {
-          for (const layer of panel.layers) {
-            if (layer.driveFileId && !layer.src) {
-              const blob = await downloadFile(layer.driveFileId);
-              layer.src = URL.createObjectURL(blob);
-            }
+  /** Resolve Drive-hosted layer images to blob URLs for display. */
+  async function hydrateDriveImages(p: ComicProject): Promise<void> {
+    for (const page of p.pages) {
+      for (const panel of page.panels) {
+        for (const layer of panel.layers) {
+          if (layer.driveFileId && !layer.src) {
+            const blob = await downloadFile(layer.driveFileId);
+            layer.src = URL.createObjectURL(blob);
           }
+        }
+      }
+    }
+  }
+
+  /** Load project.json from the project folder (blank project if none). */
+  async function loadFromDrive(): Promise<{ ok: boolean; error?: string }> {
+    setProject(null);
+    setStatus("Loading your comic from Google Drive…");
+    try {
+      const folderId =
+        folderIdRef.current ??
+        getStoredFolderId() ??
+        (await ensureProjectFolder(folderName || "My Comic")).id;
+      folderIdRef.current = folderId;
+      storeFolderId(folderId);
+      let loaded: ComicProject;
+      try {
+        const raw = (await loadProjectJson(folderId)) as unknown;
+        assertValidProject(raw);
+        loaded = raw;
+        await hydrateDriveImages(loaded);
+        setStatus(`Loaded "${loaded.title}" from Google Drive.`);
+      } catch (e) {
+        if (e instanceof Error && e.message.includes("No project.json")) {
+          loaded = createBlankProject();
+          setStatus("Created a new comic — it will save to Google Drive automatically.");
+        } else {
+          throw e;
         }
       }
       setProject(loaded);
       setPageIndex(0);
-      setStatus(`Loaded "${loaded.title}" from Google Drive.`);
       return { ok: true };
     } catch (e) {
-      const msg = `Drive open failed: ${e instanceof Error ? e.message : e}`;
+      const msg = `Could not load from Drive: ${e instanceof Error ? e.message : e}`;
       setStatus(msg);
       return { ok: false, error: msg };
-    } finally {
-      setBusy(false);
     }
   }
 
-  async function handleSaveToDrive(): Promise<{
-    ok: boolean;
-    error?: string;
-  }> {
-    if (!project) return { ok: false, error: "No project loaded." };
-    if (!getAccessToken()) {
-      setShowDrivePrompt(true);
-      return { ok: false, error: "Not connected to Google Drive." };
-    }
-    setBusy(true);
-    setStatus("");
+  /** Write the current project to Drive now. Returns false when skipped. */
+  async function flushSave(): Promise<boolean> {
+    const p = projectRef.current;
+    if (!p || savingRef.current || !getAccessToken()) return false;
+    savingRef.current = true;
+    setSaveState("saving");
     try {
       const folderId =
+        folderIdRef.current ??
         getStoredFolderId() ??
         (await ensureProjectFolder(folderName || "My Comic")).id;
+      folderIdRef.current = folderId;
       storeFolderId(folderId);
-      await saveProjectJson(folderId, {
-        ...project,
-        updatedAt: new Date().toISOString(),
-      });
-      setStatus("Project saved to Google Drive.");
-      return { ok: true };
+      const at = new Date().toISOString();
+      await saveProjectJson(folderId, { ...p, updatedAt: at });
+      setLastSaved(at);
+      setSaveState("saved");
+      return true;
     } catch (e) {
-      const msg = `Drive save failed: ${e instanceof Error ? e.message : e}`;
-      setStatus(msg);
-      return { ok: false, error: msg };
+      setSaveState("error");
+      setStatus(`Autosave failed: ${e instanceof Error ? e.message : e}`);
+      return false;
     } finally {
-      setBusy(false);
+      savingRef.current = false;
     }
   }
 
-  async function handleFilePicked(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    try {
-      const loaded = await loadProjectFromFile(file);
-      setProject(loaded);
-      setPageIndex(0);
-      setStatus(`Loaded "${loaded.title}" from file.`);
-    } catch (err) {
-      setStatus(
-        `Could not open file: ${err instanceof Error ? err.message : err}`
-      );
-    }
-    e.target.value = "";
+  // Autosave: every project change is written to Drive ~2s after the
+  // last edit. No manual save button.
+  useEffect(() => {
+    if (!project || !driveReady) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      void flushSave();
+    }, 2000);
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project, driveReady]);
+
+  async function handleConnected() {
+    setDriveReady(true);
+    setShowGate(false);
+    setStatus("Connected to Google Drive.");
+    await loadFromDrive();
   }
 
   async function handleDisconnect() {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     await disconnectDrive();
+    folderIdRef.current = null;
     setDriveReady(false);
+    setProject(null);
+    setLastSaved(null);
+    setSaveState("idle");
+    setShowGate(true);
     setStatus("Disconnected from Google Drive.");
   }
 
-  function handleSaveLocal(): string | null {
-    if (!project) return null;
+  /** Switch to a different Drive folder (from the folder name input). */
+  async function handleFolderCommit() {
+    const name = folderName.trim() || "My Comic";
+    folderIdRef.current = null;
     try {
-      const at = saveProjectLocal(project);
-      setLastSaved(at);
-      setStatus(`Saved locally at ${new Date(at).toLocaleTimeString()}.`);
-      return at;
+      const folder = await ensureProjectFolder(name);
+      folderIdRef.current = folder.id;
+      storeFolderId(folder.id);
+      await loadFromDrive();
     } catch (e) {
-      setStatus(`Local save failed: ${e instanceof Error ? e.message : e}`);
+      setStatus(`Could not switch folder: ${e instanceof Error ? e.message : e}`);
+    }
+  }
+
+  function handleSaveLocal(): string | null {
+    const p = projectRef.current;
+    if (!p) return null;
+    try {
+      return saveProjectLocal(p);
+    } catch (e) {
+      setStatus(`Local backup failed: ${e instanceof Error ? e.message : e}`);
       return null;
     }
   }
@@ -172,14 +206,10 @@ export default function App() {
   // Always-latest handler bindings for the agent API.
   const handlersRef = useRef({
     handleSaveLocal,
-    handleOpenFromDrive,
-    handleSaveToDrive,
+    flushSave,
+    loadFromDrive,
   });
-  handlersRef.current = {
-    handleSaveLocal,
-    handleOpenFromDrive,
-    handleSaveToDrive,
-  };
+  handlersRef.current = { handleSaveLocal, flushSave, loadFromDrive };
 
   // Expose the command API for AI agents / automation on window.comicBuilder.
   // See public/llms.txt and src/ai/agentApi.ts for the contract.
@@ -200,8 +230,14 @@ export default function App() {
         return true;
       },
       saveLocal: () => handlersRef.current.handleSaveLocal(),
-      saveToDrive: () => handlersRef.current.handleSaveToDrive(),
-      openFromDrive: () => handlersRef.current.handleOpenFromDrive(),
+      saveToDrive: async () => {
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        const ok = await handlersRef.current.flushSave();
+        return ok
+          ? { ok: true }
+          : { ok: false, error: "Nothing to save, or Drive is not connected." };
+      },
+      openFromDrive: () => handlersRef.current.loadFromDrive(),
       getStatus: () => statusRef.current,
       driveStatus: () => ({
         connected: hasDriveAccess(),
@@ -211,41 +247,42 @@ export default function App() {
     return () => uninstallAgentApi();
   }, []);
 
+  const currentPage = project?.pages[pageIndex] ?? null;
+
+  const saveLabel =
+    saveState === "saving"
+      ? "Saving…"
+      : saveState === "saved" && lastSaved
+        ? `Saved ${new Date(lastSaved).toLocaleTimeString()}`
+        : saveState === "error"
+          ? "Save failed — retrying on next change"
+          : null;
+
   return (
     <div className="app">
       <header className="app-header">
         <h1>{project?.title ?? "Comic Builder"}</h1>
         <div className="app-actions">
-          <button
-            onClick={() => handleSaveLocal()}
-            disabled={busy || !project}
-          >
-            Save
-          </button>
-          {lastSaved && (
-            <span className="save-state" title={lastSaved}>
-              Saved {new Date(lastSaved).toLocaleTimeString()}
+          {saveLabel && (
+            <span
+              className={`save-state${saveState === "error" ? " save-error" : ""}`}
+              title={lastSaved ?? undefined}
+            >
+              {saveLabel}
             </span>
           )}
           <input
             className="folder-input"
             value={folderName}
             onChange={(e) => setFolderName(e.target.value)}
+            onBlur={handleFolderCommit}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void handleFolderCommit();
+            }}
             placeholder="Drive folder name"
             aria-label="Drive folder name"
+            title="Project folder on Google Drive — changing it loads that folder's comic"
           />
-          <button onClick={() => handleOpenFromDrive()} disabled={busy}>
-            Open from Drive
-          </button>
-          <button
-            onClick={() => handleSaveToDrive()}
-            disabled={busy || !project}
-          >
-            Save to Drive
-          </button>
-          <button onClick={() => fileInputRef.current?.click()}>
-            Load file
-          </button>
           <button
             onClick={() => project && downloadProject(project)}
             disabled={!project}
@@ -257,20 +294,10 @@ export default function App() {
               Disconnect Drive
             </button>
           ) : (
-            <button
-              className="btn-ghost"
-              onClick={() => setShowDrivePrompt(true)}
-            >
+            <button className="btn-ghost" onClick={() => setShowGate(true)}>
               Connect Drive
             </button>
           )}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="application/json"
-            hidden
-            onChange={handleFilePicked}
-          />
         </div>
       </header>
 
@@ -307,14 +334,10 @@ export default function App() {
         </main>
       </div>
 
-      {showDrivePrompt && (
+      {showGate && (
         <DriveConnect
-          onConnected={() => {
-            setDriveReady(true);
-            setShowDrivePrompt(false);
-            setStatus("Connected to Google Drive.");
-          }}
-          onSkip={() => setShowDrivePrompt(false)}
+          onConnected={handleConnected}
+          onSkip={() => setShowGate(false)}
         />
       )}
     </div>

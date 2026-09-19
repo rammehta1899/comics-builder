@@ -63,30 +63,32 @@ of your Drive.
 
 ## Saving
 
-- **Save** (header button) persists the project in the browser's localStorage
-  with a visible "Saved HH:MM:SS" state. Reopening the app restores it.
+Google Drive is the only project store, and saving is automatic: every change
+is written to `project.json` in the project folder ~2 seconds after the last
+edit, with a visible "Saving… / Saved HH:MM:SS" state in the header. There are
+no manual save buttons.
+
 - **Export JSON** downloads the project as a `.json` file.
-- **Save to Drive** writes `project.json` into the chosen Drive folder
-  (requires Drive connection). Loading from Drive or a file never silently
-  discards browser-saved work: the previous local copy is kept as a backup
-  under the `cb_local_project_backup` key.
+- The Drive folder name in the header picks which folder's comic loads —
+  changing it loads that folder's project (or starts a blank one there).
 
 ## How Drive is used
 
 - **First open:** the app checks for a valid Drive access token. If there is
-  none, it shows a prompt explaining that your comic's images and project
-  file live on your Google Drive, with a "Connect Google Drive" button
-  (OAuth popup) and a "Continue without Drive" option.
-- **Open from Drive:** creates (or finds) a folder with the name you type and
-  loads `project.json` from it. Layer images referenced by `driveFileId` are
-  downloaded and displayed.
-- **Save to Drive:** writes the current project JSON back to `project.json`
-  in that folder. Use `uploadImage()` in `src/drive/driveClient.ts` to add
-  images to the folder.
+  none, a connect gate explains that your comic's images and project file
+  live on your Google Drive — the editor is unreachable until you click
+  "Connect Google Drive" (OAuth popup). There is no skip option.
+- **Loading:** connecting finds (or creates) the folder with the name you
+  typed and loads `project.json` from it; an empty folder starts a blank
+  comic. Layer images referenced by `driveFileId` are downloaded and
+  displayed. Changing the folder name loads that folder's comic instead.
+- **Autosave:** every project change is written back to `project.json` in
+  that folder ~2 seconds after the last edit. Use `uploadImage()` in
+  `src/drive/driveClient.ts` to add images to the folder.
 - Tokens are held only in memory with an expiry (~1 hour); reloading the
   page drops the token, so you click "Connect Google Drive" once per browser
-  session. "Disconnect Drive" revokes the token at Google and clears it
-  locally. Tokens are never written to web storage.
+  session. "Disconnect Drive" revokes the token at Google and returns you to
+  the connect gate. Tokens are never written to web storage.
 
 ## Deploy action
 

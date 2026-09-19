@@ -403,3 +403,7 @@ button:disabled {
   align-self: center;
   white-space: nowrap;
 }
+
+.save-state.save-error {
+  color: #ff8f8f;
+}

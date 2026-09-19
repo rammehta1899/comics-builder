@@ -7,6 +7,11 @@
 > Images and the project file live on the user's own Google Drive; the app is a
 > static site and talks to Drive client-side via Google OAuth (drive.file scope:
 > only files the app created or the user opened with it).
+>
+> Drive is the only project source. The app opens behind a Drive connect gate —
+> the editor is unreachable until the user connects — and every change
+> autosaves to `project.json` in the project folder (~2 seconds after the last
+> edit). There are no manual open/save buttons in the UI.
 
 ## Driving the app as an agent
 
@@ -28,10 +33,10 @@ Commands (synchronous unless noted):
 - `comicBuilder.getCurrentPage()` — the shown page as an object (null while loading)
 - `comicBuilder.saveLocal()` — persist to the browser's localStorage; returns an ISO
   timestamp, or null when there is nothing to save
-- `comicBuilder.saveToDrive()` — async; writes `project.json` to the Drive folder;
-  returns `{ ok, error? }`
-- `comicBuilder.openFromDrive()` — async; loads `project.json` from the Drive folder;
-  returns `{ ok, error? }`
+- `comicBuilder.saveToDrive()` — async; flush any pending autosave to Drive
+  immediately; returns `{ ok, error? }`
+- `comicBuilder.openFromDrive()` — async; reload `project.json` from the Drive
+  folder, discarding unsaved changes; returns `{ ok, error? }`
 - `comicBuilder.getStatus()` — last human-readable status line shown in the UI
 - `comicBuilder.driveStatus()` — `{ connected, configured }`
 
@@ -41,7 +46,7 @@ Example session (paste into the browser console, or run via automation):
 const p = comicBuilder.getProject();          // read
 p.pages[1].title = "The Hallway";             // edit the data, not the DOM
 const r = comicBuilder.loadProject(p);        // validate + render; r.ok === true
-if (r.ok) comicBuilder.saveLocal();           // persist in this browser
+// no save call needed — the app autosaves to Drive ~2s after the change
 ```
 
 ## Data model
@@ -60,6 +65,12 @@ Machine-readable schema: `schema/comic-project.schema.json` (JSON Schema, draft 
 Minimal example project: `data/sample-project.json`.
 
 ## Capabilities and limits — read before acting
+
+- Drive-gated and autosaving: the editor only appears after the user connects
+  Google Drive, and every project change (UI or `loadProject()`) is written to
+  `project.json` in the project folder ~2 seconds after the last edit. There are
+  no open/save buttons in the UI. `saveToDrive()` only flushes a pending
+  autosave early; `openFromDrive()` reloads from Drive, discarding unsaved changes.
 
 - Rendering is currently read-only in the UI: layers and bubbles are displayed, not
   drag-edited. To change artwork, layout, or text, build a new project JSON and load

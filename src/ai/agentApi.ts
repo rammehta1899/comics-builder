@@ -59,9 +59,15 @@ export interface ComicBuilderAgent {
   selectPage(index: number): boolean;
   /** Persist to this browser's localStorage. Returns ISO timestamp, or null. */
   saveLocal(): string | null;
-  /** Write project.json to the Drive folder. Needs an active Drive connection. */
+  /**
+   * Flush any pending autosave to Drive immediately (the app autosaves on
+   * its own ~2s after each change). Needs an active Drive connection.
+   */
   saveToDrive(): Promise<AgentResult>;
-  /** Load project.json from the Drive folder. Needs an active Drive connection. */
+  /**
+   * Reload project.json from the Drive folder, discarding unsaved changes.
+   * Needs an active Drive connection.
+   */
   openFromDrive(): Promise<AgentResult>;
   /** Last human-readable status line shown in the UI. */
   getStatus(): string;
@@ -75,7 +81,7 @@ declare global {
   }
 }
 
-export const AGENT_API_VERSION = "1.0.0";
+export const AGENT_API_VERSION = "1.1.0";
 
 export function installAgentApi(deps: AgentApiDeps): void {
   const api: ComicBuilderAgent = {
@@ -92,8 +98,8 @@ export function installAgentApi(deps: AgentApiDeps): void {
       "getCurrentPage() — the shown page as an object (null when loading)",
       "selectPage(i) — show page i (0-based); returns false when out of range",
       "saveLocal() — persist to browser localStorage; returns ISO timestamp or null",
-      "saveToDrive() — async: write project.json to Drive; returns { ok, error? }",
-      "openFromDrive() — async: load project.json from Drive; returns { ok, error? }",
+      "saveToDrive() — async: flush pending autosave to Drive now; returns { ok, error? }",
+      "openFromDrive() — async: reload project.json from Drive, discarding unsaved changes; returns { ok, error? }",
       "getStatus() — last status line shown in the UI",
       "driveStatus() — { connected, configured }; OAuth connect needs a real user click",
     ],
