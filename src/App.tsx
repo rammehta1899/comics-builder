@@ -792,6 +792,14 @@ export default function App() {
                   {formatPageNumber(pg.number)}
                 </button>
               ))}
+              <button
+                title="Add page"
+                aria-label="Add page"
+                className="btn btn-sm btn-outline-primary mx-2 mb-1 px-0"
+                onClick={() => void cb().page.add()}
+              >
+                +
+              </button>
             </div>
             <main className="flex-grow-1 p-3 overflow-auto">
               {currentPage ? (
@@ -824,6 +832,14 @@ export default function App() {
                   {formatPageNumber(pg.number)}
                 </button>
               ))}
+              <button
+                title="Add page"
+                aria-label="Add page"
+                className="btn btn-sm btn-outline-primary px-3 flex-shrink-0"
+                onClick={() => void cb().page.add()}
+              >
+                +
+              </button>
             </div>
           </div>
         </div>

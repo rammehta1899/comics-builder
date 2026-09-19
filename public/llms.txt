@@ -152,6 +152,16 @@ Returns: , error? }.
 
 ## page — Page navigation and preview for the open project.
 
+### ComicBuilder.page.add()
+
+Add a blank page at the end of the project and show it.
+
+Parameters:
+  * title: - Optional page title (defaults to "Page 01", "Page 02", …).
+
+Returns: A promise resolving to { ok, index?, error? } with the new
+0-based page index.
+
 ### ComicBuilder.page.count()
 
 Number of pages in the open project.

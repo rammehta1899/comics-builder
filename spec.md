@@ -122,8 +122,8 @@ Namespaces:
   `createProject(name)`, `openProject(idOrName)`, `closeProject()`,
   `removeProject(idOrName)`, `showProjects()`, `save()`
 - `project` — `load(data)` (replace the whole project from JSON, validated)
-- `page` — `count()`, `select(i)`, `current()`, `openPreview()`,
-  `closePreview()`
+- `page` — `count()`, `select(i)`, `current()`, `add(title?)`,
+  `openPreview()`, `closePreview()`
 - `layers` — `list(panelId)`, `get(panelId, layerId)`, `add(panelId, layer)`,
   `update(panelId, layerId, patch)`, `delete(panelId, layerId)`
 - `bubbles` — `list/add/update/delete`, addressed by panel id

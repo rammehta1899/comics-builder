@@ -33,6 +33,7 @@ import type {
   Scene,
 } from '../types/comic';
 import { assertValidProject } from '../state/project';
+import { formatPageNumber } from '../types/comic';
 import { attachDocs, buildHelpText } from './docs';
 import { ACTION_DOCS } from './actions.docs.gen';
 import type { DeviceCodeInfo } from '../drive/driveClient';
@@ -430,6 +431,30 @@ export function createComicBuilder(deps: ComicBuilderDeps) {
         if (!p) return null;
         return snapshot(p.pages[deps.getPageIndex()] ?? null);
       },
+
+      /**
+       * Add a blank page at the end of the project and show it.
+       * @param title - Optional page title (defaults to "Page 01", "Page 02", …).
+       * @returns A promise resolving to { ok, index?, error? } with the new
+       *   0-based page index.
+       */
+      add: (title?: string): Promise<ActionResult & { index?: number }> =>
+        (async (): Promise<ActionResult & { index?: number }> => {
+          const p = deps.getProject();
+          if (!p) return { ok: false, error: 'No project is open.' };
+          let index = -1;
+          deps.updateProject((proj) => {
+            index = proj.pages.length;
+            proj.pages.push({
+              id: newId('page'),
+              number: index,
+              title: title?.trim() || `Page ${formatPageNumber(index)}`,
+              panels: [],
+            });
+          });
+          deps.setPageIndex(index);
+          return { ok: true, index };
+        })(),
 
       /**
        * Open preview mode: the current page rendered full-bleed with all its
