@@ -297,11 +297,103 @@ button:disabled {
 }
 
 @media (max-width: 700px) {
-  .page-rail {
-    width: 150px;
+  .app-header {
+    padding: 8px 10px;
+    gap: 8px;
   }
+
+  .app-header h1 {
+    font-size: 16px;
+  }
+
+  .app-actions {
+    gap: 6px;
+  }
+
+  button {
+    padding: 10px 10px;
+    font-size: 13px;
+  }
+
+  .folder-input {
+    flex: 1 1 120px;
+    min-width: 0;
+    width: auto;
+  }
+
+  /* Page rail becomes a horizontal strip above the canvas. */
+  .app-body {
+    flex-direction: column;
+  }
+
+  .page-rail {
+    width: auto;
+    flex-shrink: 0;
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding: 6px 8px;
+  }
+
+  .page-rail-item {
+    flex-shrink: 0;
+    border-left: none;
+    border-bottom: 3px solid transparent;
+    padding: 8px 12px;
+  }
+
+  .page-rail-item.active {
+    border-bottom-color: var(--accent);
+  }
+
   .page-rail-title {
     display: none;
+  }
+
+  .page-view {
+    padding: 12px 12px 32px;
+  }
+
+  .panels {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .page-heading {
+    font-size: 16px;
+  }
+
+  .status-bar {
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+
+  .drive-card {
+    padding: 18px;
+  }
+
+  .bubble {
+    font-size: 13px;
+    padding: 6px 10px;
+  }
+}
+
+/* Touch devices: comfortable tap targets, no double-tap zoom delay. */
+@media (pointer: coarse) {
+  button {
+    min-height: 44px;
+    touch-action: manipulation;
+  }
+
+  .page-rail-item {
+    min-height: 44px;
+    align-items: center;
+  }
+
+  .layer-toggle {
+    min-height: 32px;
   }
 }
 
