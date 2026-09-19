@@ -34,6 +34,7 @@ import type {
 import { assertValidProject } from '../state/project';
 import { attachDocs, buildHelpText } from './docs';
 import { ACTION_DOCS } from './actions.docs.gen';
+import type { DeviceCodeInfo } from '../drive/driveClient';
 
 export const COMIC_BUILDER_VERSION = '2.0.0';
 
@@ -60,6 +61,13 @@ export interface ComicBuilderDeps {
   setStatus(msg: string): void;
   /** Start the Drive OAuth flow. Must be called from a user gesture. */
   connectStorage(): Promise<void>;
+  /**
+   * Start the Drive OAuth device flow for headless sessions (no popup).
+   * Resolves promptly with { url, code, expiresInSeconds } for the user to
+   * approve on any device; the access token lands in memory in the
+   * background once they approve.
+   */
+  connectStorageWithDevice(): Promise<DeviceCodeInfo>;
   /** Revoke the Drive grant at Google and clear local Drive state. */
   disconnectStorage(): Promise<void>;
   getStorageStatus(): { connected: boolean; configured: boolean };
@@ -251,6 +259,23 @@ export function createComicBuilder(deps: ComicBuilderDeps) {
        * @returns A promise that resolves when Drive access is granted.
        */
       connect: (): Promise<void> => deps.connectStorage(),
+
+      /**
+       * Start the Google Drive OAuth device flow — for headless browsers
+       * and AI assistants that cannot complete the GIS popup.
+       * Resolves promptly with { url, code, expiresInSeconds }: show the
+       * user the URL and code (they open the URL on any device — a phone
+       * works — enter the code, and approve). Then poll storage.status()
+       * until connected is true and continue. The background poll rejects
+       * on denial or expiry; status() then stays disconnected.
+       * Works from injected scripts: no popup, no user gesture needed.
+       * The device client secret ships in the app bundle by design
+       * (Google's device-client model: distributed apps cannot keep
+       * secrets; scope stays limited to drive.file, and the access token
+       * itself is memory-only).
+       * @returns The verification URL, user code, and code expiry.
+       */
+      connectWithDevice: (): Promise<DeviceCodeInfo> => deps.connectStorageWithDevice(),
 
       /**
        * Disconnect Drive: revoke the grant at Google AND clear the remembered

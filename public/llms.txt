@@ -104,6 +104,23 @@ Parameters:
 
 Returns: A promise resolving to { id, name } of the new folder.
 
+### ComicBuilder.storage.connectWithDevice()
+
+Start the Google Drive OAuth device flow — for headless browsers
+and AI assistants that cannot complete the GIS popup.
+Resolves promptly with { url, code, expiresInSeconds }: show the
+user the URL and code (they open the URL on any device — a phone
+works — enter the code, and approve). Then poll storage.status()
+until connected is true and continue. The background poll rejects
+on denial or expiry; status() then stays disconnected.
+Works from injected scripts: no popup, no user gesture needed.
+The device client secret ships in the app bundle by design
+(Google's device-client model: distributed apps cannot keep
+secrets; scope stays limited to drive.file, and the access token
+itself is memory-only).
+
+Returns: The verification URL, user code, and code expiry.
+
 ## project — Whole-project operations on the currently open project.
 
 ### ComicBuilder.project.load()

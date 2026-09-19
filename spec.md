@@ -35,9 +35,13 @@ Google Drive API ◄── OAuth token (page memory) ── saveProjectJson()
 1. **Splash** (`splash`) — hard gate. Title "Connect to Google Drive",
    a two-line reason, a React-controlled expander ("Why do we need this
    access?") that explains `drive.file` scope, memory-only tokens, and —
-   explicitly — that the app cannot work at all without connecting. One
-   button: "Connect with Google Drive", which calls
-   `ComicBuilder.storage.connect()`.
+   explicitly — that the app cannot work at all without connecting. Two
+   buttons: "Connect with Google Drive", which calls
+   `ComicBuilder.storage.connect()` (GIS popup, human click), and
+   "Connect with a code (for AI assistants)", which calls
+   `ComicBuilder.storage.connectWithDevice()` — the OAuth device flow
+   for headless browsers, showing a verification URL + user code for the
+   user to approve on any other device.
 2. **Tiles** (`tiles`) — one Bootstrap card per Drive project folder plus a
    dashed "New project" tile. The new-project name is collected in a
    Bootstrap modal. Each tile opens through
@@ -95,7 +99,7 @@ also the app's **LLM skill**: see §5.
 Namespaces:
 
 - `version`, `help()`
-- `storage` — `connect()`, `disconnect()`, `status()`, `listProjects()`,
+- `storage` — `connect()`, `connectWithDevice()`, `disconnect()`, `status()`, `listProjects()`,
   `createProject(name)`, `openProject(idOrName)`, `closeProject()`,
   `showProjects()`, `save()`
 - `project` — `load(data)` (replace the whole project from JSON, validated)
@@ -119,9 +123,12 @@ Semantics:
 - **One mutation path.** Every mutation goes through `deps.updateProject`,
   which restarts the ~2s debounced Drive autosave. There is no separate
   "save button" path anywhere.
-- **No Drive during testing.** OAuth requires a real human click on the
-  connect button — browsers block popups from injected scripts, so
-  `storage.connect()` called by an agent alone cannot complete the flow.
+- **Two OAuth flows.** The GIS popup (`storage.connect()`) requires a real
+  human click — browsers block popups from injected scripts, so an agent
+  calling it alone cannot complete the flow. The device flow
+  (`storage.connectWithDevice()`) works headless: it returns a
+  verification URL + user code for the user to approve on any device, and
+  the agent polls `storage.status()` until connected.
 
 ## 5. Runtime docs generation (the LLM skill)
 
@@ -155,9 +162,16 @@ generated from the same JSDoc, so it can never drift from the code.
   containing `project.json` and uploaded artwork. Artwork is uploaded via
   `uploadImage()` and registered as `MediaItem`s; layers reference files
   by `driveFileId` and are hydrated to blob URLs on open.
-- **Client ID:** `VITE_GOOGLE_CLIENT_ID` at build time (from the
-  `GOOGLE_CLIENT_ID` repo secret in CI, `.env.local` locally). The app is
-  a public OAuth client: no secret in the repo or the bundle.
+- **Client IDs:** `VITE_GOOGLE_CLIENT_ID` (Web application, GIS popup) and
+  `VITE_GOOGLE_DEVICE_CLIENT_ID` + `VITE_GOOGLE_DEVICE_CLIENT_SECRET`
+  ("TVs and Limited Input devices", device flow) at build time (from the
+  `GOOGLE_CLIENT_ID`, `GOOGLE_DEVICE_CLIENT_ID`,
+  `GOOGLE_DEVICE_CLIENT_SECRET` repo secrets in CI, `.env.local` locally).
+  The web client is a public OAuth client with no secret anywhere. The
+  device client secret ships in the bundle by design: Google's
+  device-client model assumes distributed apps cannot keep secrets (the
+  same model rclone uses); it only identifies the client, scope stays
+  `drive.file`, and access tokens remain memory-only.
 
 ## 7. Autosave
 
@@ -226,8 +240,11 @@ it's drawn comic content, it's custom CSS.
 
 ## 11. Agent testing constraints
 
-- Do not attempt Drive OAuth during automated testing: it requires the
-  user's real click, and there is no throwaway-credential path.
+- Drive OAuth during automated testing: the GIS popup (`storage.connect()`)
+  needs the user's real click and cannot be completed headless. The device
+  flow (`storage.connectWithDevice()`) is the headless path — the agent
+  relays the URL + code to the user, who approves on any device; no
+  throwaway credentials exist, so use the real user gesture.
 - Static checks (tsc, vite build, prettier, extractor) are the automated
   gate. Live-browser verification — visual inspection and console
   injection of `window.ComicBuilder` — needs a real browser session and is

@@ -24,6 +24,18 @@
  * silently, and the app prompts for it when the token is missing/expired).
  * The remembered project *folder id* is not a secret, so it stays in
  * localStorage and a reconnect re-opens the same folder.
+ *
+ * Headless browsers (e.g. an AI assistant driving the page via Playwright)
+ * cannot complete the GIS popup, so the module also implements Google's
+ * OAuth 2.0 device authorization flow (RFC 8628):
+ * `requestDeviceAccess()` returns a verification URL + user code for the
+ * user to approve on any other device, then polls Google in the background
+ * until the token arrives. The device flow needs the device client's
+ * secret at the token exchange — it ships in the app bundle by design.
+ * Google's device-client model assumes distributed apps cannot keep
+ * secrets (the same model rclone uses); the secret only identifies the
+ * client, the scope stays limited to drive.file, and the access token
+ * itself is still memory-only.
  */
 
 const GIS_SCRIPT_URL = 'https://accounts.google.com/gsi/client';
@@ -140,11 +152,178 @@ export async function requestDriveAccess(): Promise<string> {
 
 /** Revoke the token at Google and clear local state. */
 export async function disconnectDrive(): Promise<void> {
+  cancelDeviceAccess();
   const token = readStoredToken();
   clearDriveAccess();
   if (token && window.google?.accounts?.oauth2) {
     window.google.accounts.oauth2.revoke(token.access_token, () => undefined);
   }
+}
+
+// ---------------------------------------------------------------------------
+// OAuth 2.0 device authorization flow (RFC 8628) — for headless browsers and
+// AI assistants that cannot complete the GIS popup.
+// ---------------------------------------------------------------------------
+
+const DEVICE_CODE_URL = 'https://oauth2.googleapis.com/device/code';
+const DEVICE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
+const DEVICE_GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:device_code';
+
+/**
+ * What requestDeviceAccess() hands back: show `url` and `code` to the user
+ * (an agent relays them to its human), who approves on any other device.
+ */
+export interface DeviceCodeInfo {
+  /** e.g. https://www.google.com/device — the user opens this anywhere. */
+  url: string;
+  /** e.g. "ABCD-EFGH" — the user types this at the URL above. */
+  code: string;
+  /** Seconds until the code expires (Google currently sends 1800). */
+  expiresInSeconds: number;
+}
+
+export function getDeviceClientId(): string | null {
+  const id = import.meta.env.VITE_GOOGLE_DEVICE_CLIENT_ID as string | undefined;
+  return id && id.trim().length > 0 ? id : null;
+}
+
+function getDeviceClientSecret(): string | null {
+  const s = import.meta.env.VITE_GOOGLE_DEVICE_CLIENT_SECRET as string | undefined;
+  return s && s.trim().length > 0 ? s : null;
+}
+
+/** True when the device-flow client ID and secret are both configured. */
+export function isDeviceFlowConfigured(): boolean {
+  return !!getDeviceClientId() && !!getDeviceClientSecret();
+}
+
+async function postForm(url: string, params: Record<string, string>): Promise<any> {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams(params),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Google OAuth error ${res.status}: ${body.slice(0, 200)}`);
+  }
+  return await res.json();
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Poll Google's token endpoint until the user approves (or denies / the
+ * code expires). Handles authorization_pending, slow_down, access_denied,
+ * and expired_token per RFC 8628 §3.5. On success the access token is
+ * stored in module memory exactly like the popup flow's token.
+ */
+async function pollDeviceToken(
+  clientId: string,
+  clientSecret: string,
+  deviceCode: string,
+  baseIntervalSec: number,
+  expiresInSec: number,
+  signal: AbortSignal
+): Promise<string> {
+  const deadline = Date.now() + expiresInSec * 1000;
+  let intervalSec = baseIntervalSec;
+  for (;;) {
+    if (signal.aborted) throw new Error('Device authorization was cancelled.');
+    if (Date.now() >= deadline) {
+      throw new Error('The device code expired before approval. Start over.');
+    }
+    await sleep(intervalSec * 1000);
+    let data: any;
+    try {
+      data = await postForm(DEVICE_TOKEN_URL, {
+        client_id: clientId,
+        client_secret: clientSecret,
+        device_code: deviceCode,
+        grant_type: DEVICE_GRANT_TYPE,
+      });
+    } catch {
+      continue; // transient network error — keep polling until the deadline
+    }
+    if (data?.access_token) {
+      storeToken(data.access_token, Number(data.expires_in) || 3600);
+      return data.access_token as string;
+    }
+    const err = data?.error as string | undefined;
+    if (err === 'authorization_pending') continue;
+    if (err === 'slow_down') {
+      intervalSec += 5;
+      continue;
+    }
+    if (err === 'access_denied') {
+      throw new Error('The user denied the device authorization request.');
+    }
+    if (err === 'expired_token') {
+      throw new Error('The device code expired before approval. Start over.');
+    }
+    throw new Error(
+      `Device authorization failed: ${data?.error_description || err || 'unknown error'}.`
+    );
+  }
+}
+
+let activeDevicePoll: { promise: Promise<string>; cancel: () => void } | null = null;
+
+/** Stop any in-progress device authorization poll. */
+export function cancelDeviceAccess(): void {
+  activeDevicePoll?.cancel();
+  activeDevicePoll = null;
+}
+
+/**
+ * Start the device flow: request a user code from Google and begin
+ * polling for the token in the background. Resolves promptly with the
+ * { url, code, expiresInSeconds } to show the user — it does NOT wait
+ * for approval. Await awaitDeviceAccess() (or poll hasDriveAccess()) for
+ * the token. Starting a new flow cancels any previous one.
+ */
+export async function requestDeviceAccess(): Promise<DeviceCodeInfo> {
+  const clientId = getDeviceClientId();
+  const clientSecret = getDeviceClientSecret();
+  if (!clientId || !clientSecret) {
+    throw new Error('Device connect is not configured (missing Google device OAuth client).');
+  }
+  cancelDeviceAccess();
+  const data: any = await postForm(DEVICE_CODE_URL, {
+    client_id: clientId,
+    scope: DRIVE_FILE_SCOPE,
+  });
+  if (data?.error || !data?.device_code) {
+    throw new Error(
+      `Could not start device authorization: ${data?.error_description || data?.error || 'unknown error'}.`
+    );
+  }
+  const controller = new AbortController();
+  const promise = pollDeviceToken(
+    clientId,
+    clientSecret,
+    data.device_code as string,
+    Number(data.interval) || 5,
+    Number(data.expires_in) || 1800,
+    controller.signal
+  );
+  // Avoid an unhandled rejection if nobody awaits; awaiters still see it.
+  promise.catch(() => undefined);
+  activeDevicePoll = { promise, cancel: () => controller.abort() };
+  return {
+    url: data.verification_url as string,
+    code: data.user_code as string,
+    expiresInSeconds: Number(data.expires_in) || 1800,
+  };
+}
+
+/**
+ * Resolve when the in-progress device authorization completes (token is
+ * then in memory). Rejects on denial, expiry, or cancellation.
+ */
+export function awaitDeviceAccess(): Promise<string> {
+  if (!activeDevicePoll) throw new Error('No device authorization in progress.');
+  return activeDevicePoll.promise;
 }
 
 // ---------------------------------------------------------------------------

@@ -3,6 +3,8 @@ import PanelView from './components/PanelView';
 import { installComicBuilder, uninstallComicBuilder } from './ai/actions';
 import type { ComicBuilderDeps } from './ai/actions';
 import {
+  awaitDeviceAccess,
+  cancelDeviceAccess,
   clearStoredFolderId,
   disconnectDrive,
   downloadFile,
@@ -11,11 +13,13 @@ import {
   hasDriveAccess,
   listProjectFolders,
   loadProjectJson,
+  requestDeviceAccess,
   requestDriveAccess,
   saveProjectJson,
   storeFolderId,
   uploadImage,
 } from './drive/driveClient';
+import type { DeviceCodeInfo } from './drive/driveClient';
 import { assertValidProject, createBlankProject } from './state/project';
 import type { ComicProject, MediaItem } from './types/comic';
 import { formatPageNumber } from './types/comic';
@@ -46,6 +50,7 @@ export default function App() {
   const [pageIndex, setPageIndex] = useState(0);
   const [folders, setFolders] = useState<Array<{ id: string; name: string }>>([]);
   const [status, setStatus] = useState('');
+  const [deviceCode, setDeviceCode] = useState<DeviceCodeInfo | null>(null);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [showNewModal, setShowNewModal] = useState(false);
   const [newName, setNewName] = useState('');
@@ -178,8 +183,29 @@ export default function App() {
         }
       },
 
+      connectStorageWithDevice: async () => {
+        const info = await requestDeviceAccess();
+        setDeviceCode(info);
+        setStatus(`Go to ${info.url} and enter code ${info.code} to connect.`);
+        void (async () => {
+          try {
+            await awaitDeviceAccess();
+            await refreshTiles();
+            setDeviceCode(null);
+            setScreen('tiles');
+            setStatus('Connected to Google Drive.');
+          } catch (e) {
+            setDeviceCode(null);
+            setStatus(`Could not connect: ${e instanceof Error ? e.message : e}`);
+          }
+        })();
+        return info;
+      },
+
       disconnectStorage: async () => {
         if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        cancelDeviceAccess();
+        setDeviceCode(null);
         try {
           await disconnectDrive();
         } catch {
@@ -354,6 +380,30 @@ export default function App() {
             >
               Connect with Google Drive
             </button>
+            <button
+              className="btn btn-outline-primary w-100 mt-2"
+              onClick={() => void cb().storage.connectWithDevice()}
+            >
+              Connect with a code (for AI assistants)
+            </button>
+            {deviceCode && (
+              <div className="alert alert-info mt-3">
+                <p className="mb-1">
+                  <strong>On your phone or another browser, go to:</strong>
+                </p>
+                <p>
+                  <a href={deviceCode.url} target="_blank" rel="noreferrer">
+                    {deviceCode.url}
+                  </a>
+                </p>
+                <p className="mb-1">Enter this code:</p>
+                <p className="display-6 fw-bold text-center">{deviceCode.code}</p>
+                <p className="mb-0 text-muted">
+                  The code expires in {Math.round(deviceCode.expiresInSeconds / 60)} minutes. This
+                  page connects automatically once you approve.
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </div>

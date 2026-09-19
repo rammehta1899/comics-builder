@@ -30,6 +30,18 @@ The app talks to Drive through an OAuth web client:
    repository secret — the deploy workflow reads it into
    `VITE_GOOGLE_CLIENT_ID` at build time.
 
+For headless browsers and AI assistants, the app also offers the OAuth
+device flow ("Connect with a code"):
+
+1. In the same Cloud project, create a second **OAuth client ID** of type
+   "TVs and Limited Input devices".
+2. Store its client ID as the `GOOGLE_DEVICE_CLIENT_ID` repository secret
+   and its client secret as `GOOGLE_DEVICE_CLIENT_SECRET` — the deploy
+   workflow reads them into `VITE_GOOGLE_DEVICE_CLIENT_ID` and
+   `VITE_GOOGLE_DEVICE_CLIENT_SECRET` at build time. The secret ships in
+   the app bundle by design: Google's device-client model assumes
+   distributed apps cannot keep secrets (the same model rclone uses).
+
 The app asks for the `drive.file` scope only: it can see and touch just the
 files and folders it created, nothing else on your Drive. The token lives only
 in page memory — reloading the page drops it, one click reconnects, and
