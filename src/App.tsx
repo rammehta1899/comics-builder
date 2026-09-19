@@ -357,7 +357,7 @@ export default function App() {
         pageIndexRef.current = 0;
         setPageIndex(0);
         setPreview(false);
-        setTab('pages');
+        setTab('outline');
         setScreen('editor');
         flashStatus(`Created "${clean}".`);
         return { id: folder.id, name: folder.name };
